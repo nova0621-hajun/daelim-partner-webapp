@@ -121,6 +121,12 @@ function doPost(e) {
       case "addImportantHistory":
         return jsonOutput(addImportantHistory(body));
 
+      case "paymentSnapshot":
+        return jsonOutput(getPaymentSnapshot(body));
+
+      case "savePartnerPayment":
+        return jsonOutput(savePartnerPayment(body));
+
       default:
         return jsonOutput({
           success: false,
