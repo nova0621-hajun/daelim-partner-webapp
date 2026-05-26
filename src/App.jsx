@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
-  ArrowLeft,
   Building2,
   Camera,
   CheckCircle2,
@@ -13,7 +12,6 @@ import {
   Phone,
   ShieldCheck,
   Upload,
-  UserRound,
   Users,
   X,
 } from "lucide-react";
@@ -136,8 +134,7 @@ function FieldLabel({ children }) {
 }
 
 export default function PartnerInstallerPortal() {
-  const [screen, setScreen] = useState("select");
-  const [loginType, setLoginType] = useState("partner");
+  const [screen, setScreen] = useState("login");
   const [loginId, setLoginId] = useState("");
   const [loginPw, setLoginPw] = useState("");
   const [loginMessage, setLoginMessage] = useState("");
@@ -208,14 +205,6 @@ export default function PartnerInstallerPortal() {
     photoMissing: visibleJobs.filter((job) => job.photo !== "등록완료").length,
     complete: visibleJobs.filter((job) => job.status === "시공완료").length,
   }), [visibleJobs]);
-
-  const startLogin = (type) => {
-    setLoginType(type);
-    setScreen("login");
-    setLoginId("");
-    setLoginPw("");
-    setLoginMessage("");
-  };
 
   const fetchPartnerJobs = async (loginUser, options = {}) => {
     try {
@@ -310,7 +299,6 @@ export default function PartnerInstallerPortal() {
     try {
       const result = await apiPost({
         action: "partnerLogin",
-        role: loginType,
         id: trimmedId,
         password: trimmedPw,
       });
@@ -323,11 +311,16 @@ export default function PartnerInstallerPortal() {
       const loginUser = {
         id: result.id || trimmedId,
         name: result.name || result.partnerName || result.engineerName || trimmedId,
-        role: result.role || loginType,
+        role: result.role || "",
         partnerName: result.partnerName || result.partner || "",
         engineerName: result.engineerName || result.engineer || "",
         engineerPhone: result.engineerPhone || result.phone || "",
       };
+
+      if (!loginUser.role) {
+        setLoginMessage("계정 권한 정보를 확인할 수 없습니다.");
+        return;
+      }
 
       const [rows, engineers] = await Promise.all([
         fetchPartnerJobs(loginUser),
@@ -352,7 +345,7 @@ export default function PartnerInstallerPortal() {
   const handleLogout = () => {
     window.localStorage.removeItem(SESSION_STORAGE_KEY);
     setUser(null);
-    setScreen("select");
+    setScreen("login");
     setDetailJob(null);
     setUploadJob(null);
     setHistoryJob(null);
@@ -618,7 +611,7 @@ export default function PartnerInstallerPortal() {
     }
   };
 
-  if (screen === "select") {
+  if (screen === "login") {
     if (restoringSession) {
       return (
         <main className="flex min-h-screen items-center justify-center bg-slate-50 p-5">
@@ -630,20 +623,14 @@ export default function PartnerInstallerPortal() {
       );
     }
 
-    return <LoginSelect onSelect={startLogin} />;
-  }
-
-  if (screen === "login") {
     return (
       <LoginForm
-        type={loginType}
         id={loginId}
         password={loginPw}
         setId={setLoginId}
         setPassword={setLoginPw}
         message={loginMessage}
         loading={loginLoading}
-        onBack={() => setScreen("select")}
         onSubmit={handleLogin}
       />
     );
@@ -711,44 +698,7 @@ export default function PartnerInstallerPortal() {
   );
 }
 
-function LoginSelect({ onSelect }) {
-  return (
-    <main className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 p-5 text-white">
-      <div className="w-full max-w-md">
-        <div className="mb-6 text-center">
-          <p className="text-sm font-bold text-sky-300">DAELIM BATH & KITCHEN</p>
-          <h1 className="mt-2 text-3xl font-black tracking-tight">시공사 포털</h1>
-          <p className="mt-3 text-sm leading-relaxed text-slate-300">협력사와 시공엔지니어가 현장정보 확인, 사진등록, 이력등록을 처리하는 전용 앱입니다.</p>
-        </div>
-
-        <div className="space-y-3 rounded-[2rem] border border-white/10 bg-white/10 p-4 shadow-2xl backdrop-blur">
-          <button onClick={() => onSelect("partner")} className="flex w-full items-center gap-4 rounded-3xl bg-white p-5 text-left text-slate-900 shadow-lg transition active:scale-[0.99]">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-900 text-white"><Building2 className="h-6 w-6" /></div>
-            <div>
-              <p className="text-lg font-black">협력사 로그인</p>
-              <p className="mt-1 text-xs font-bold text-slate-500">현장 확인 · 엔지니어 배정 · 사진/이력 보완</p>
-            </div>
-          </button>
-
-          <button onClick={() => onSelect("engineer")} className="flex w-full items-center gap-4 rounded-3xl bg-white p-5 text-left text-slate-900 shadow-lg transition active:scale-[0.99]">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-600 text-white"><UserRound className="h-6 w-6" /></div>
-            <div>
-              <p className="text-lg font-black">시공엔지니어 로그인</p>
-              <p className="mt-1 text-xs font-bold text-slate-500">내 현장 확인 · 사진등록 · 완료보고</p>
-            </div>
-          </button>
-        </div>
-
-        <div className="mt-5 rounded-3xl border border-white/10 bg-white/5 p-4 text-xs leading-relaxed text-slate-300">
-          Google Spreadsheet에 등록된 협력사 또는 시공엔지니어 계정으로 로그인합니다.
-        </div>
-      </div>
-    </main>
-  );
-}
-
-function LoginForm({ type, id, password, setId, setPassword, message, loading = false, onBack, onSubmit }) {
-  const isPartner = type === "partner";
+function LoginForm({ id, password, setId, setPassword, message, loading = false, onSubmit }) {
   const submitOnEnter = (event) => {
     if (event.key !== "Enter") return;
     onSubmit();
@@ -757,20 +707,20 @@ function LoginForm({ type, id, password, setId, setPassword, message, loading = 
   return (
     <main className="flex min-h-screen items-center justify-center bg-slate-50 p-5">
       <div className="w-full max-w-md rounded-[2rem] bg-white p-6 shadow-xl">
-        <button onClick={onBack} className="mb-5 inline-flex items-center gap-1 text-sm font-black text-slate-500"><ArrowLeft className="h-4 w-4" /> 돌아가기</button>
         <div className="flex items-center gap-3">
-          <div className={`flex h-12 w-12 items-center justify-center rounded-2xl text-white ${isPartner ? "bg-slate-900" : "bg-blue-600"}`}>
-            {isPartner ? <Building2 className="h-6 w-6" /> : <UserRound className="h-6 w-6" />}
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-900 text-white">
+            <Building2 className="h-6 w-6" />
           </div>
           <div>
-            <h1 className="text-2xl font-black">{isPartner ? "협력사 로그인" : "시공엔지니어 로그인"}</h1>
-            <p className="mt-1 text-xs font-bold text-slate-500">등록된 계정 정보를 입력해 주세요.</p>
+            <p className="text-xs font-black text-slate-400">DAELIM BATH & KITCHEN</p>
+            <h1 className="text-2xl font-black">시공사 포털 로그인</h1>
+            <p className="mt-1 text-xs font-bold text-slate-500">계정 권한에 따라 화면이 자동으로 열립니다.</p>
           </div>
         </div>
 
         <div className="mt-6 space-y-4">
           <div>
-            <FieldLabel>{isPartner ? "협력사 ID" : "기사 ID"}</FieldLabel>
+            <FieldLabel>ID</FieldLabel>
             <input value={id} onKeyDown={submitOnEnter} onChange={(e) => setId(e.target.value)} disabled={loading} className="w-full rounded-2xl border px-4 py-3 text-base font-bold disabled:opacity-60" />
           </div>
           <div>
@@ -855,6 +805,7 @@ function TabBar({ user, activeTab, setActiveTab }) {
 
 function JobCard({ job, user, onDetail, onUpload, onHistory, onComplete, completing = false }) {
   const isComplete = job.status === "시공완료";
+  const needsEngineer = user.role === "partner" && (!job.engineer || job.engineer === "미배정" || job.status === "엔지니어배정요청");
 
   return (
     <article className="rounded-3xl border bg-white p-4 shadow-sm">
@@ -883,7 +834,7 @@ function JobCard({ job, user, onDetail, onUpload, onHistory, onComplete, complet
         </button>
       </div>
 
-      {user.role === "partner" && (!job.engineer || job.engineer === "미배정" || job.status === "엔지니어배정요청") ? (
+      {needsEngineer ? (
         <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs font-bold text-amber-700">엔지니어 배정이 필요한 현장입니다.</div>
       ) : null}
     </article>
@@ -898,6 +849,7 @@ function JobDetailModal({ job, user, onClose, onUpload, onHistory, onAssign, eng
   const [engineer, setInstaller] = useState(job.engineer === "미배정" ? "" : job.engineer || "");
   const engineerNames = engineerOptions.map((item) => item.name);
   const isComplete = job.status === "시공완료";
+  const canAssignEngineer = user.role === "partner";
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 md:items-center md:p-4">
@@ -933,7 +885,7 @@ function JobDetailModal({ job, user, onClose, onUpload, onHistory, onAssign, eng
           </DetailBox>
         </div>
 
-        {user.role === "partner" ? (
+        {canAssignEngineer ? (
           <div className="mt-4 rounded-3xl border border-blue-100 bg-blue-50 p-4">
             <h3 className="font-black text-blue-900">엔지니어 배정</h3>
             <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
