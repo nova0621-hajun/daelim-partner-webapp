@@ -18,6 +18,9 @@ import {
   X,
 } from "lucide-react";
 
+const WEBAPP_URL =
+  "https://script.google.com/macros/s/AKfycbzunWIU75WOPAnZLS9MGqgLLJ9-P4P1f59gNpggLcWcEGs_P0NArHOLdKNwwPQGekMewg/exec";
+
 const MOCK_USERS = {
   partner: {
     id: "partner01",
@@ -196,16 +199,88 @@ export default function PartnerInstallerPortal() {
     setLoginMessage("");
   };
 
-  const handleLogin = () => {
-    const target = MOCK_USERS[loginType];
-    if (loginId.trim() === target.id && loginPw.trim() === target.password) {
-      setUser(target);
-      setScreen("dashboard");
-      setActiveTab("today");
-      setLoginMessage("");
+  const fetchPartnerJobs = async (loginUser) => {
+    try {
+      const response = await fetch(WEBAPP_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "text/plain;charset=utf-8",
+        },
+        body: JSON.stringify({
+          action: "getPartnerJobs",
+          role: loginUser.role,
+          partnerName: loginUser.partnerName,
+          engineerName: loginUser.engineerName || "",
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!result.success) {
+        setLoginMessage(result.message || "현장 목록 조회 실패");
+        return [];
+      }
+
+      return result.rows || [];
+    } catch (err) {
+      console.error(err);
+      setLoginMessage("현장 목록 API 연결 실패");
+      return [];
+    }
+  };
+
+  const handleLogin = async () => {
+    const trimmedId = loginId.trim();
+    const trimmedPw = loginPw.trim();
+
+    if (!trimmedId || !trimmedPw) {
+      setLoginMessage("아이디와 비밀번호를 입력해 주세요.");
       return;
     }
-    setLoginMessage("아이디 또는 비밀번호가 일치하지 않습니다. 테스트 계정은 자동 입력된 값 그대로 사용하세요.");
+
+    setLoginMessage("로그인 확인 중입니다.");
+
+    try {
+      const response = await fetch(WEBAPP_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "text/plain;charset=utf-8",
+        },
+        body: JSON.stringify({
+          action: "partnerLogin",
+          role: loginType,
+          id: trimmedId,
+          password: trimmedPw,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!result.success) {
+        setLoginMessage(result.message || "아이디 또는 비밀번호를 확인해 주세요.");
+        return;
+      }
+
+      const loginUser = {
+        id: result.id || trimmedId,
+        name: result.name || result.partnerName || result.engineerName || trimmedId,
+        role: result.role || loginType,
+        partnerName: result.partnerName || result.partner || "",
+        engineerName: result.engineerName || result.engineer || "",
+        engineerPhone: result.engineerPhone || result.phone || "",
+      };
+
+      const rows = await fetchPartnerJobs(loginUser);
+
+      setUser(loginUser);
+      setJobs(rows);
+      setActiveTab("today");
+      setScreen("portal");
+      setLoginMessage("");
+    } catch (err) {
+      console.error(err);
+      setLoginMessage("로그인 API 연결 실패");
+    }
   };
 
   const handleLogout = () => {
