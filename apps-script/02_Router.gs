@@ -113,10 +113,10 @@ function doPost(e) {
         return jsonOutput(setEditLock(body));
 
       case "uploadPhoto":
-        return jsonOutput(uploadPhoto(body));
+        return jsonOutput(uploadPhotoWithLockGuard(body));
 
       case "uploadDrawing":
-        return jsonOutput(uploadDrawing(body));
+        return jsonOutput(uploadDrawingWithLockGuard(body));
 
       case "addImportantHistory":
         return jsonOutput(addImportantHistory(body));

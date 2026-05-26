@@ -4,6 +4,7 @@ import {
   Camera,
   CheckCircle2,
   ClipboardList,
+  Copy,
   FileText,
   Loader2,
   Lock,
@@ -62,6 +63,12 @@ function installPeriod(job) {
 function jobKey(job) {
   if (!job) return "";
   return `${job.month || job.sheet || ""}-${job.rowNumber || job.id || job.jobId || ""}`;
+}
+
+function isJobLocked(job) {
+  if (!job) return false;
+  const lockValue = String(job.editLock || job.editLocked || job.locked || "").trim().toUpperCase();
+  return job.editLocked === true || job.locked === true || lockValue === "Y" || lockValue === "TRUE";
 }
 
 function buildEngineerOptions(data, partnerName) {
@@ -154,6 +161,7 @@ export default function PartnerInstallerPortal() {
   const [uploadProgress, setUploadProgress] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const [actionMessage, setActionMessage] = useState("");
+  const [copiedAddressJobId, setCopiedAddressJobId] = useState("");
 
   useEffect(() => {
     if (!detailJob?.month || !detailJob?.rowNumber) return;
@@ -399,6 +407,11 @@ export default function PartnerInstallerPortal() {
   const assignInstaller = async (job, engineer) => {
     if (!job || !engineer || !user) return;
 
+    if (isJobLocked(job)) {
+      setActionMessage("관리자가 잠근 현장입니다. 잠금 해제 후 이용할 수 있습니다.");
+      return;
+    }
+
     const key = jobKey(job);
     const selectedEngineer = engineerOptions.find((item) => item.name === engineer);
     const nextEngineerPhone = selectedEngineer?.phone || job.engineerPhone || "";
@@ -449,6 +462,11 @@ export default function PartnerInstallerPortal() {
   const completeJob = async (job) => {
     if (!job || !user) return;
 
+    if (isJobLocked(job)) {
+      setActionMessage("관리자가 잠근 현장입니다. 완료보고를 저장할 수 없습니다.");
+      return;
+    }
+
     const key = jobKey(job);
     const completePatch = { status: "시공완료" };
     setCompletingJobId(key);
@@ -492,6 +510,11 @@ export default function PartnerInstallerPortal() {
   const addHistory = async (job, text) => {
     if (!text.trim()) return;
     if (!job || !user) return;
+
+    if (isJobLocked(job)) {
+      setActionMessage("관리자가 잠근 현장입니다. 이력을 등록할 수 없습니다.");
+      return;
+    }
 
     const key = jobKey(job);
     const nextHistoryLine = `${new Date().toLocaleString("ko-KR")} ${user.name || user.engineerName || user.partnerName || "사용자"}: ${text.trim()}`;
@@ -544,6 +567,11 @@ export default function PartnerInstallerPortal() {
 
   const uploadPhotoFiles = async (job, category, files) => {
     if (!job || !user) return false;
+
+    if (isJobLocked(job)) {
+      setActionMessage("관리자가 잠근 현장입니다. 사진을 등록할 수 없습니다.");
+      return false;
+    }
 
     const fileList = Array.from(files || []);
     const check = validateUploadFiles(fileList, category);
@@ -611,6 +639,48 @@ export default function PartnerInstallerPortal() {
     }
   };
 
+  const copyAddress = async (job) => {
+    const address = String(job?.address || "").trim();
+
+    if (!address) {
+      setActionMessage("복사할 현장주소가 없습니다.");
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(address);
+      const key = jobKey(job);
+      setCopiedAddressJobId(key);
+      setActionMessage("현장주소를 복사했습니다.");
+      window.setTimeout(() => setCopiedAddressJobId((current) => current === key ? "" : current), 1800);
+    } catch (err) {
+      console.error(err);
+      setActionMessage("주소 복사에 실패했습니다. 브라우저 권한을 확인해 주세요.");
+    }
+  };
+
+  const openUpload = (job) => {
+    setActionMessage("");
+
+    if (isJobLocked(job)) {
+      setActionMessage("관리자가 잠근 현장입니다. 사진을 등록할 수 없습니다.");
+      return;
+    }
+
+    setUploadJob(job);
+  };
+
+  const openHistory = (job) => {
+    setActionMessage("");
+
+    if (isJobLocked(job)) {
+      setActionMessage("관리자가 잠근 현장입니다. 이력을 등록할 수 없습니다.");
+      return;
+    }
+
+    setHistoryJob(job);
+  };
+
   if (screen === "login") {
     if (restoringSession) {
       return (
@@ -663,10 +733,9 @@ export default function PartnerInstallerPortal() {
                 setDetailJob(job);
               }}
               onUpload={() => {
-                setActionMessage("");
-                setUploadJob(job);
+                openUpload(job);
               }}
-              onHistory={() => setHistoryJob(job)}
+              onHistory={() => openHistory(job)}
               onComplete={() => completeJob(job)}
               completing={completingJobId === jobKey(job)}
             />
@@ -681,14 +750,32 @@ export default function PartnerInstallerPortal() {
           job={detailJob}
           user={user}
           onClose={() => setDetailJob(null)}
-          onUpload={() => { setActionMessage(""); setUploadJob(detailJob); setDetailJob(null); }}
-          onHistory={() => { setHistoryJob(detailJob); setDetailJob(null); }}
+          onUpload={() => {
+            if (isJobLocked(detailJob)) {
+              setActionMessage("관리자가 잠근 현장입니다. 사진을 등록할 수 없습니다.");
+              return;
+            }
+            setActionMessage("");
+            setUploadJob(detailJob);
+            setDetailJob(null);
+          }}
+          onHistory={() => {
+            if (isJobLocked(detailJob)) {
+              setActionMessage("관리자가 잠근 현장입니다. 이력을 등록할 수 없습니다.");
+              return;
+            }
+            setActionMessage("");
+            setHistoryJob(detailJob);
+            setDetailJob(null);
+          }}
           onAssign={assignInstaller}
           engineerOptions={engineerOptions}
           assigning={assigningJobId === jobKey(detailJob)}
           completing={completingJobId === jobKey(detailJob)}
           actionMessage={actionMessage}
           onComplete={completeJob}
+          onCopyAddress={copyAddress}
+          addressCopied={copiedAddressJobId === jobKey(detailJob)}
         />
       ) : null}
 
@@ -805,6 +892,7 @@ function TabBar({ user, activeTab, setActiveTab }) {
 
 function JobCard({ job, user, onDetail, onUpload, onHistory, onComplete, completing = false }) {
   const isComplete = job.status === "시공완료";
+  const locked = isJobLocked(job);
   const needsEngineer = user.role === "partner" && (!job.engineer || job.engineer === "미배정" || job.status === "엔지니어배정요청");
 
   return (
@@ -814,7 +902,10 @@ function JobCard({ job, user, onDetail, onUpload, onHistory, onComplete, complet
           <p className="truncate text-lg font-black">{job.customer}</p>
           <p className="mt-1 line-clamp-2 text-xs font-medium leading-relaxed text-slate-500">{job.address}</p>
         </div>
-        <Badge className={STATUS_CLASS[job.status] || "border-slate-200 bg-slate-100 text-slate-600"}>{job.status}</Badge>
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          {locked ? <Badge className="border-rose-200 bg-rose-50 text-rose-700">잠금</Badge> : null}
+          <Badge className={STATUS_CLASS[job.status] || "border-slate-200 bg-slate-100 text-slate-600"}>{job.status}</Badge>
+        </div>
       </div>
 
       <div className="mt-4 grid grid-cols-2 gap-2 rounded-2xl bg-slate-50 p-3 text-sm">
@@ -826,13 +917,17 @@ function JobCard({ job, user, onDetail, onUpload, onHistory, onComplete, complet
 
       <div className="mt-4 grid grid-cols-2 gap-2 md:grid-cols-4">
         <button onClick={onDetail} className="rounded-2xl bg-slate-900 px-3 py-3 text-xs font-black text-white">상세보기</button>
-        <button onClick={onUpload} className="rounded-2xl border bg-white px-3 py-3 text-xs font-black text-slate-700">사진등록</button>
-        <button onClick={onHistory} className="rounded-2xl border bg-white px-3 py-3 text-xs font-black text-slate-700">이력등록</button>
-        <button onClick={onComplete} disabled={completing || isComplete} className="flex items-center justify-center gap-1 rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-3 text-xs font-black text-emerald-700 disabled:opacity-50">
+        <button onClick={onUpload} disabled={locked} className="rounded-2xl border bg-white px-3 py-3 text-xs font-black text-slate-700 disabled:bg-slate-100 disabled:text-slate-400">사진등록</button>
+        <button onClick={onHistory} disabled={locked} className="rounded-2xl border bg-white px-3 py-3 text-xs font-black text-slate-700 disabled:bg-slate-100 disabled:text-slate-400">이력등록</button>
+        <button onClick={onComplete} disabled={locked || completing || isComplete} className="flex items-center justify-center gap-1 rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-3 text-xs font-black text-emerald-700 disabled:opacity-50">
           {completing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-          {completing ? "저장중" : isComplete ? "완료됨" : "완료보고"}
+          {locked ? "잠금" : completing ? "저장중" : isComplete ? "완료됨" : "완료보고"}
         </button>
       </div>
+
+      {locked ? (
+        <div className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 p-3 text-xs font-bold text-rose-700">관리자가 잠근 현장입니다. 상세보기와 주소 확인만 가능합니다.</div>
+      ) : null}
 
       {needsEngineer ? (
         <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs font-bold text-amber-700">엔지니어 배정이 필요한 현장입니다.</div>
@@ -845,10 +940,11 @@ function Info({ label, value }) {
   return <div><p className="text-[11px] font-black text-slate-400">{label}</p><p className="mt-1 font-black text-slate-700">{value || "-"}</p></div>;
 }
 
-function JobDetailModal({ job, user, onClose, onUpload, onHistory, onAssign, engineerOptions = [], assigning = false, completing = false, actionMessage = "", onComplete }) {
+function JobDetailModal({ job, user, onClose, onUpload, onHistory, onAssign, engineerOptions = [], assigning = false, completing = false, actionMessage = "", onComplete, onCopyAddress, addressCopied = false }) {
   const [engineer, setInstaller] = useState(job.engineer === "미배정" ? "" : job.engineer || "");
   const engineerNames = engineerOptions.map((item) => item.name);
   const isComplete = job.status === "시공완료";
+  const locked = isJobLocked(job);
   const canAssignEngineer = user.role === "partner";
 
   return (
@@ -857,14 +953,30 @@ function JobDetailModal({ job, user, onClose, onUpload, onHistory, onAssign, eng
         <div className="flex items-start justify-between gap-3">
           <div>
             <h2 className="text-2xl font-black">{job.customer}</h2>
-            <div className="mt-2 flex flex-wrap gap-2"><Badge className={STATUS_CLASS[job.status] || "border-slate-200 bg-slate-100 text-slate-600"}>{job.status}</Badge><Badge className="border-slate-200 bg-slate-50 text-slate-600">{job.item}</Badge></div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {locked ? <Badge className="border-rose-200 bg-rose-50 text-rose-700">관리자 잠금</Badge> : null}
+              <Badge className={STATUS_CLASS[job.status] || "border-slate-200 bg-slate-100 text-slate-600"}>{job.status}</Badge>
+              <Badge className="border-slate-200 bg-slate-50 text-slate-600">{job.item}</Badge>
+            </div>
           </div>
           <button onClick={onClose} className="rounded-2xl border p-2 text-slate-500"><X className="h-5 w-5" /></button>
         </div>
 
         <div className="mt-4 rounded-3xl bg-slate-50 p-4">
-          <div className="flex items-start gap-2"><MapPin className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" /><p className="text-sm font-bold leading-relaxed text-slate-700">{job.address}</p></div>
+          <div className="flex items-start gap-2">
+            <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
+            <p className="min-w-0 flex-1 text-sm font-bold leading-relaxed text-slate-700">{job.address}</p>
+          </div>
+          <button onClick={() => onCopyAddress(job)} className="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl border bg-white px-4 py-3 text-xs font-black text-slate-700">
+            <Copy className="h-4 w-4" /> {addressCopied ? "복사됨" : "주소복사"}
+          </button>
         </div>
+
+        {locked ? (
+          <div className="mt-4 rounded-3xl border border-rose-200 bg-rose-50 p-4 text-sm font-bold leading-relaxed text-rose-700">
+            마스터가 잠금 처리한 현장입니다. 잠금 해제 전까지 사진등록, 이력등록, 완료보고, 엔지니어 배정을 사용할 수 없습니다.
+          </div>
+        ) : null}
 
         <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
           <DetailBox title="기본 정보">
@@ -889,13 +1001,13 @@ function JobDetailModal({ job, user, onClose, onUpload, onHistory, onAssign, eng
           <div className="mt-4 rounded-3xl border border-blue-100 bg-blue-50 p-4">
             <h3 className="font-black text-blue-900">엔지니어 배정</h3>
             <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
-              <select value={engineer} onChange={(e) => setInstaller(e.target.value)} disabled={assigning} className="rounded-2xl border bg-white px-3 py-3 text-sm font-bold disabled:opacity-60">
+              <select value={engineer} onChange={(e) => setInstaller(e.target.value)} disabled={locked || assigning} className="rounded-2xl border bg-white px-3 py-3 text-sm font-bold disabled:opacity-60">
                 <option value="">엔지니어 선택</option>
                 {engineerNames.map((name) => <option key={name} value={name}>{name}</option>)}
               </select>
-              <button onClick={() => engineer && onAssign(job, engineer)} disabled={!engineer || assigning} className="flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-sm font-black text-white disabled:bg-blue-300">
+              <button onClick={() => engineer && onAssign(job, engineer)} disabled={locked || !engineer || assigning} className="flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-sm font-black text-white disabled:bg-blue-300">
                 {assigning ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                {assigning ? "저장 중" : "배정"}
+                {locked ? "잠금" : assigning ? "저장 중" : "배정"}
               </button>
             </div>
           </div>
@@ -921,16 +1033,16 @@ function JobDetailModal({ job, user, onClose, onUpload, onHistory, onAssign, eng
             })}
           </div>
           {job.photoUrl ? <a href={job.photoUrl} target="_blank" rel="noreferrer" className="mt-3 flex w-full items-center justify-center rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-black text-emerald-700">전체 사진보기</a> : null}
-          <button onClick={onUpload} className="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-4 text-sm font-black text-white"><Upload className="h-4 w-4" /> 사진등록</button>
+          <button onClick={onUpload} disabled={locked} className="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-4 text-sm font-black text-white disabled:bg-slate-300"><Upload className="h-4 w-4" /> {locked ? "잠금" : "사진등록"}</button>
         </DetailBox>
 
         {actionMessage ? <div className="mt-4 rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-800">{actionMessage}</div> : null}
 
         <div className="sticky bottom-0 -mx-5 mt-5 grid grid-cols-2 gap-2 border-t bg-white/95 px-5 py-4 backdrop-blur">
-          <button onClick={onHistory} className="rounded-2xl border px-4 py-3 text-sm font-black">이력등록</button>
-          <button onClick={() => onComplete(job)} disabled={completing || isComplete} className="flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-black text-white disabled:bg-emerald-300">
+          <button onClick={onHistory} disabled={locked} className="rounded-2xl border px-4 py-3 text-sm font-black disabled:bg-slate-100 disabled:text-slate-400">이력등록</button>
+          <button onClick={() => onComplete(job)} disabled={locked || completing || isComplete} className="flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-black text-white disabled:bg-emerald-300">
             {completing ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            {completing ? "저장 중" : isComplete ? "완료됨" : "완료보고"}
+            {locked ? "잠금" : completing ? "저장 중" : isComplete ? "완료됨" : "완료보고"}
           </button>
         </div>
       </div>

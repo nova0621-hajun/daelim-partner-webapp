@@ -44,12 +44,13 @@ function getPartnerJobs(body) {
 
     if (lastRow < DATA_START_ROW) return;
 
+    const lastColumn = Math.max(COL.DELETE_REQUEST, COL.EDIT_LOCKED || 0);
     const values = sheet
       .getRange(
         DATA_START_ROW,
         1,
         lastRow - DATA_START_ROW + 1,
-        COL.DELETE_REQUEST
+        lastColumn
       )
       .getValues();
 
@@ -62,6 +63,7 @@ function getPartnerJobs(body) {
       const partner = row[COL.PARTNER - 1];
       const engineer = row[COL.INSTALLER - 1];
       const folderUrl = row[COL.FOLDER_URL - 1] || "";
+      const editLock = getEditLockValueFromRow_(row);
       const photoInfo = folderUrl
         ? getPhotoCategoryInfoByFolderUrl_(folderUrl)
         : {
@@ -124,6 +126,8 @@ function getPartnerJobs(body) {
         photoLink: row[COL.PHOTO_LINK - 1] || "",
         photoCounts: photoInfo.counts,
         photoUrls: photoInfo.urls,
+        editLock: editLock,
+        editLocked: isLockedValue_(editLock),
         deleteRequest: row[COL.DELETE_REQUEST - 1] || ""
       });
     });
@@ -196,6 +200,13 @@ function assignEngineer(body) {
     return {
       success: false,
       message: "해당 협력사 현장이 아닙니다."
+    };
+  }
+
+  if (isPartnerJobLocked_(sheet, rowNumber)) {
+    return {
+      success: false,
+      message: "관리자가 잠근 현장입니다. 잠금 해제 후 처리할 수 있습니다."
     };
   }
 
@@ -400,6 +411,13 @@ function checkPartnerJobAccess_(sheet, rowNumber, role, partnerName, engineerNam
     };
   }
 
+  if (isPartnerJobLocked_(sheet, rowNumber)) {
+    return {
+      success: false,
+      message: "관리자가 잠근 현장입니다. 잠금 해제 후 처리할 수 있습니다."
+    };
+  }
+
   if (role === "partner" && partnerName && currentPartner !== partnerName) {
     return {
       success: false,
@@ -417,6 +435,183 @@ function checkPartnerJobAccess_(sheet, rowNumber, role, partnerName, engineerNam
   return {
     success: true
   };
+}
+
+
+/**
+ * 사진 업로드 전 현장잠금 상태 확인 후 기존 uploadPhoto 실행
+ *
+ * @param {Object} body 요청 데이터
+ * @returns {Object} 업로드 결과
+ */
+function uploadPhotoWithLockGuard(body) {
+  const guard = checkJobUnlockedByBody_(body);
+
+  if (!guard.success) {
+    return guard;
+  }
+
+  return uploadPhoto(body);
+}
+
+
+/**
+ * 도면 업로드 전 현장잠금 상태 확인 후 기존 uploadDrawing 실행
+ *
+ * @param {Object} body 요청 데이터
+ * @returns {Object} 업로드 결과
+ */
+function uploadDrawingWithLockGuard(body) {
+  const guard = checkJobUnlockedByBody_(body);
+
+  if (!guard.success) {
+    return guard;
+  }
+
+  return uploadDrawing(body);
+}
+
+
+/**
+ * 요청 본문 기준으로 현장잠금 상태 확인
+ *
+ * @param {Object} body 요청 데이터
+ * @returns {Object} 확인 결과
+ */
+function checkJobUnlockedByBody_(body) {
+  const month = String(body.month || "").trim();
+  const rowNumber = Number(body.rowNumber || 0);
+  const role = String(body.role || "").trim();
+  const partnerName = String(body.partnerName || "").trim();
+  const engineerName = String(body.engineerName || "").trim();
+
+  if (!month || !rowNumber) {
+    return {
+      success: true
+    };
+  }
+
+  const sheet = SpreadsheetApp
+    .getActiveSpreadsheet()
+    .getSheetByName(month);
+
+  if (!sheet) {
+    return {
+      success: false,
+      message: month + " 시트를 찾을 수 없습니다."
+    };
+  }
+
+  if (isPartnerJobLocked_(sheet, rowNumber)) {
+    return {
+      success: false,
+      message: "관리자가 잠근 현장입니다. 잠금 해제 후 업로드할 수 있습니다."
+    };
+  }
+
+  if (role === "partner" || role === "engineer") {
+    const access = checkPartnerJobAccessWithoutLock_(sheet, rowNumber, role, partnerName, engineerName);
+
+    if (!access.success) {
+      return access;
+    }
+  }
+
+  return {
+    success: true
+  };
+}
+
+
+/**
+ * 업로드용 현장 접근 권한 확인
+ *
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet 월 시트
+ * @param {number} rowNumber 현장 행 번호
+ * @param {string} role 권한
+ * @param {string} partnerName 협력사명
+ * @param {string} engineerName 엔지니어명
+ * @returns {Object} 확인 결과
+ */
+function checkPartnerJobAccessWithoutLock_(sheet, rowNumber, role, partnerName, engineerName) {
+  const customer = String(sheet.getRange(rowNumber, COL.CUSTOMER).getValue() || "").trim();
+  const status = String(sheet.getRange(rowNumber, COL.STATUS).getValue() || "").trim();
+  const currentPartner = String(sheet.getRange(rowNumber, COL.PARTNER).getValue() || "").trim();
+  const currentEngineer = String(sheet.getRange(rowNumber, COL.INSTALLER).getValue() || "").trim();
+
+  if (!customer) {
+    return {
+      success: false,
+      message: "현장 정보를 찾을 수 없습니다."
+    };
+  }
+
+  if (status === STATUS.DELETED) {
+    return {
+      success: false,
+      message: "삭제된 현장은 처리할 수 없습니다."
+    };
+  }
+
+  if (role === "partner" && partnerName && currentPartner !== partnerName) {
+    return {
+      success: false,
+      message: "해당 협력사 현장이 아닙니다."
+    };
+  }
+
+  if (role === "engineer" && engineerName && currentEngineer !== engineerName) {
+    return {
+      success: false,
+      message: "배정된 시공엔지니어 현장이 아닙니다."
+    };
+  }
+
+  return {
+    success: true
+  };
+}
+
+
+/**
+ * 월 시트 행의 현장잠금 여부 확인
+ *
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet 월 시트
+ * @param {number} rowNumber 현장 행 번호
+ * @returns {boolean} 잠금 여부
+ */
+function isPartnerJobLocked_(sheet, rowNumber) {
+  if (!COL.EDIT_LOCKED) return false;
+
+  const value = sheet.getRange(rowNumber, COL.EDIT_LOCKED).getValue();
+
+  return isLockedValue_(value);
+}
+
+
+/**
+ * 행 데이터에서 현장잠금 값 조회
+ *
+ * @param {Array} row 행 데이터
+ * @returns {string} 잠금 값
+ */
+function getEditLockValueFromRow_(row) {
+  if (!COL.EDIT_LOCKED) return "";
+
+  return row[COL.EDIT_LOCKED - 1] || "";
+}
+
+
+/**
+ * 잠금 값 판정
+ *
+ * @param {*} value 원본 값
+ * @returns {boolean} 잠금 여부
+ */
+function isLockedValue_(value) {
+  const text = String(value || "").trim().toUpperCase();
+
+  return text === "Y" || text === "TRUE" || text === "잠금";
 }
 
 
