@@ -3,6 +3,9 @@
  * 협력사 / 시공엔지니어 전용 현장 조회 API
  ***************************************/
 
+/** 지급시공비: T열 */
+const PARTNER_PAYMENT_COLUMN = 20;
+
 /**
  * 협력사 / 시공엔지니어 권한별 현장 목록 조회
  *
@@ -45,7 +48,7 @@ function getPartnerJobs(body) {
 
     if (lastRow < DATA_START_ROW) return;
 
-    const lastColumn = Math.max(COL.DELETE_REQUEST, COL.EDIT_LOCKED || 0, getMaxPartnerPaymentColumn_());
+    const lastColumn = Math.max(COL.DELETE_REQUEST, COL.EDIT_LOCKED || 0, PARTNER_PAYMENT_COLUMN);
     const values = sheet
       .getRange(
         DATA_START_ROW,
@@ -640,57 +643,7 @@ function isLockedValue_(value) {
  * @returns {*} 지급시공비 값
  */
 function getPartnerPaymentAmountFromRow_(row) {
-  const candidates = getPartnerPaymentColumnCandidates_();
-
-  for (let i = 0; i < candidates.length; i++) {
-    const key = candidates[i];
-    const column = COL[key];
-
-    if (!column) continue;
-
-    const value = row[column - 1];
-
-    if (value !== "" && value !== null && value !== undefined) {
-      return value;
-    }
-  }
-
-  return "";
-}
-
-
-/**
- * 지급시공비 후보 컬럼 중 가장 큰 컬럼 번호 조회
- *
- * @returns {number} 최대 컬럼 번호
- */
-function getMaxPartnerPaymentColumn_() {
-  const candidates = getPartnerPaymentColumnCandidates_();
-  let maxColumn = 0;
-
-  candidates.forEach(function(key) {
-    if (COL[key]) maxColumn = Math.max(maxColumn, COL[key]);
-  });
-
-  return maxColumn;
-}
-
-
-/**
- * 지급시공비 컬럼 후보 키 목록
- *
- * @returns {Array<string>} 후보 키 목록
- */
-function getPartnerPaymentColumnCandidates_() {
-  return [
-    "PARTNER_PAYMENT",
-    "INSTALL_PAYMENT",
-    "INSTALL_COST",
-    "INSTALL_PRICE",
-    "CONTRACT_PRICE",
-    "PAYMENT",
-    "PRICE"
-  ];
+  return row[PARTNER_PAYMENT_COLUMN - 1] || "";
 }
 
 
