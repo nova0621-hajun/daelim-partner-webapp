@@ -124,7 +124,13 @@ const STATUS_CLASS = {
 };
 
 const PHOTO_CATEGORY_OPTIONS = ["계약도면", "시공전", "완료사진", "기타"];
-const ENGINEERS = ["우재경", "김기사", "박기사", "최기사"];
+const ENGINEER_OPTIONS = [
+  { name: "우재경", phone: "010-4118-3472" },
+  { name: "김기사", phone: "" },
+  { name: "박기사", phone: "" },
+  { name: "최기사", phone: "" },
+];
+const ENGINEERS = ENGINEER_OPTIONS.map((engineer) => engineer.name);
 
 function onlyDigits(value) {
   return String(value || "").replace(/[^0-9]/g, "");
@@ -149,6 +155,10 @@ function installPeriod(job) {
   return `${shortDate(job.installDate)} ~ ${shortDate(job.endDate)}`;
 }
 
+function jobKey(job) {
+  return job?.rowNumber || job?.id || job?.jobId || "";
+}
+
 function Badge({ children, className = "" }) {
   return <span className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-black leading-none ${className}`}>{children}</span>;
 }
@@ -169,6 +179,8 @@ export default function PartnerInstallerPortal() {
   const [detailJob, setDetailJob] = useState(null);
   const [uploadJob, setUploadJob] = useState(null);
   const [historyJob, setHistoryJob] = useState(null);
+  const [assigningJobId, setAssigningJobId] = useState("");
+  const [actionMessage, setActionMessage] = useState("");
 
   const visibleJobs = useMemo(() => {
     if (!user) return [];
@@ -291,13 +303,58 @@ export default function PartnerInstallerPortal() {
     setHistoryJob(null);
   };
 
-  const assignInstaller = (jobId, engineer) => {
-    setJobs((prev) => prev.map((job) => job.id === jobId ? {
-      ...job,
-      engineer,
-      engineerPhone: "010-4118-3472",
-      status: "엔지니어배정완료",
-    } : job));
+  const assignInstaller = async (job, engineer) => {
+    if (!job || !engineer || !user) return;
+
+    const key = jobKey(job);
+    const selectedEngineer = ENGINEER_OPTIONS.find((item) => item.name === engineer);
+
+    setAssigningJobId(key);
+    setActionMessage("");
+
+    try {
+      const response = await fetch(WEBAPP_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "text/plain;charset=utf-8",
+        },
+        body: JSON.stringify({
+          action: "assignEngineer",
+          rowNumber: job.rowNumber || "",
+          jobId: job.id || job.jobId || "",
+          id: job.id || "",
+          month: job.month || job.sheet || "",
+          partnerName: user.partnerName || job.partner || "",
+          engineerName: engineer,
+          engineerPhone: selectedEngineer?.phone || job.engineerPhone || "",
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!result.success) {
+        setActionMessage(result.message || "엔지니어 배정 저장에 실패했습니다.");
+        return;
+      }
+
+      const rows = await fetchPartnerJobs(user);
+      setJobs(rows);
+      setDetailJob((current) => {
+        if (!current) return current;
+        return rows.find((row) => jobKey(row) === key) || {
+          ...current,
+          engineer,
+          engineerPhone: selectedEngineer?.phone || current.engineerPhone,
+          status: "엔지니어배정완료",
+        };
+      });
+      setActionMessage("엔지니어 배정이 저장되었습니다.");
+    } catch (err) {
+      console.error(err);
+      setActionMessage("엔지니어 배정 API 연결 실패");
+    } finally {
+      setAssigningJobId("");
+    }
   };
 
   const completeJob = (jobId) => {
@@ -371,7 +428,10 @@ export default function PartnerInstallerPortal() {
               key={job.id}
               job={job}
               user={user}
-              onDetail={() => setDetailJob(job)}
+              onDetail={() => {
+                setActionMessage("");
+                setDetailJob(job);
+              }}
               onUpload={() => setUploadJob(job)}
               onHistory={() => setHistoryJob(job)}
               onComplete={() => completeJob(job.id)}
@@ -390,6 +450,8 @@ export default function PartnerInstallerPortal() {
           onUpload={() => { setUploadJob(detailJob); setDetailJob(null); }}
           onHistory={() => { setHistoryJob(detailJob); setDetailJob(null); }}
           onAssign={assignInstaller}
+          assigning={assigningJobId === jobKey(detailJob)}
+          actionMessage={actionMessage}
           onComplete={completeJob}
         />
       ) : null}
@@ -573,7 +635,7 @@ function Info({ label, value }) {
   return <div><p className="text-[11px] font-black text-slate-400">{label}</p><p className="mt-1 font-black text-slate-700">{value || "-"}</p></div>;
 }
 
-function JobDetailModal({ job, user, onClose, onUpload, onHistory, onAssign, onComplete }) {
+function JobDetailModal({ job, user, onClose, onUpload, onHistory, onAssign, assigning = false, actionMessage = "", onComplete }) {
   const [engineer, setInstaller] = useState(job.engineer === "미배정" ? "" : job.engineer || "");
 
   return (
@@ -614,12 +676,16 @@ function JobDetailModal({ job, user, onClose, onUpload, onHistory, onAssign, onC
           <div className="mt-4 rounded-3xl border border-blue-100 bg-blue-50 p-4">
             <h3 className="font-black text-blue-900">엔지니어 배정</h3>
             <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
-              <select value={engineer} onChange={(e) => setInstaller(e.target.value)} className="rounded-2xl border bg-white px-3 py-3 text-sm font-bold">
+              <select value={engineer} onChange={(e) => setInstaller(e.target.value)} disabled={assigning} className="rounded-2xl border bg-white px-3 py-3 text-sm font-bold disabled:opacity-60">
                 <option value="">엔지니어 선택</option>
                 {ENGINEERS.map((name) => <option key={name} value={name}>{name}</option>)}
               </select>
-              <button onClick={() => engineer && onAssign(job.id, engineer)} className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-black text-white">배정</button>
+              <button onClick={() => engineer && onAssign(job, engineer)} disabled={!engineer || assigning} className="flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-sm font-black text-white disabled:bg-blue-300">
+                {assigning ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                {assigning ? "저장 중" : "배정"}
+              </button>
             </div>
+            {actionMessage ? <p className="mt-3 text-xs font-bold text-blue-800">{actionMessage}</p> : null}
           </div>
         ) : null}
 
