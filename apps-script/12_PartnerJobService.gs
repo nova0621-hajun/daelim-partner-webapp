@@ -30,6 +30,7 @@ function getPartnerJobs(body) {
 
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheets = ss.getSheets();
+  const managerPhoneByName = getManagerPhoneMap_();
 
   const rows = [];
 
@@ -95,6 +96,7 @@ function getPartnerJobs(body) {
         /** 기본 정보 */
         customer: row[COL.CUSTOMER - 1] || "",
         manager: row[COL.MANAGER - 1] || "",
+        managerPhone: managerPhoneByName[String(row[COL.MANAGER - 1] || "").trim()] || "",
         team: row[COL.TEAM - 1] || "",
         phone: row[COL.PHONE - 1] || "",
         address: row[COL.ADDRESS - 1] || "",
@@ -619,6 +621,43 @@ function isLockedValue_(value) {
   const text = String(value || "").trim().toUpperCase();
 
   return text === "Y" || text === "TRUE" || text === "잠금";
+}
+
+
+/**
+ * 기초데이터 시트 기준 담당자 휴대전화 매핑
+ *
+ * 기초데이터:
+ * - C열: 이름
+ * - E열: 휴대전화
+ * - H열: 사용여부
+ *
+ * @returns {Object} 이름별 휴대전화 맵
+ */
+function getManagerPhoneMap_() {
+  const sheet = SpreadsheetApp
+    .getActiveSpreadsheet()
+    .getSheetByName("기초데이터");
+
+  const map = {};
+
+  if (!sheet) return map;
+
+  const values = sheet.getDataRange().getValues();
+
+  for (let i = 1; i < values.length; i++) {
+    const row = values[i];
+    const name = String(row[2] || "").trim();
+    const phone = String(row[4] || "").trim();
+    const enabled = String(row[7] || "").trim();
+
+    if (!name || !phone) continue;
+    if (enabled && enabled !== "승인" && enabled.toUpperCase() !== "Y") continue;
+
+    map[name] = phone;
+  }
+
+  return map;
 }
 
 

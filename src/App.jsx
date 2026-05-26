@@ -60,6 +60,26 @@ function installPeriod(job) {
   return `${shortDate(job.installDate)} ~ ${shortDate(job.endDate)}`;
 }
 
+function parseJobDate(value) {
+  if (!value) return null;
+  const text = String(value).trim().replace(/\./g, "-");
+  const parsed = new Date(text);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function sortJobsByInstallDateDesc(rows) {
+  return [...rows].sort((a, b) => {
+    const ad = parseJobDate(a.installDate);
+    const bd = parseJobDate(b.installDate);
+
+    if (!ad && !bd) return 0;
+    if (!ad) return 1;
+    if (!bd) return -1;
+
+    return bd - ad;
+  });
+}
+
 function jobKey(job) {
   if (!job) return "";
   return `${job.month || job.sheet || ""}-${job.rowNumber || job.id || job.jobId || ""}`;
@@ -203,8 +223,11 @@ export default function PartnerInstallerPortal() {
 
   const visibleJobs = useMemo(() => {
     if (!user) return [];
-    if (user.role === "partner") return jobs.filter((job) => job.partner === user.partnerName);
-    return jobs.filter((job) => job.engineer === user.engineerName);
+    const scopedJobs = user.role === "partner"
+      ? jobs.filter((job) => job.partner === user.partnerName)
+      : jobs.filter((job) => job.engineer === user.engineerName);
+
+    return sortJobsByInstallDateDesc(scopedJobs);
   }, [jobs, user]);
 
   const filteredJobs = useMemo(() => {
