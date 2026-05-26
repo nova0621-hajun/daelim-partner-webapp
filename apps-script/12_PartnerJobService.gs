@@ -61,6 +61,13 @@ function getPartnerJobs(body) {
       const status = row[COL.STATUS - 1];
       const partner = row[COL.PARTNER - 1];
       const engineer = row[COL.INSTALLER - 1];
+      const folderUrl = row[COL.FOLDER_URL - 1] || "";
+      const photoInfo = folderUrl
+        ? getPhotoCategoryInfoByFolderUrl_(folderUrl)
+        : {
+            counts: { 계약도면: 0, 시공전: 0, 완료사진: 0, 기타: 0 },
+            urls: { 계약도면: "", 시공전: "", 완료사진: "", 기타: "" }
+          };
 
       /** 고객명 없는 행 제외 */
       if (!customer) return;
@@ -112,8 +119,11 @@ function getPartnerJobs(body) {
         history: row[COL.HISTORY - 1] || "",
 
         /** 사진 */
-        photoUrl: row[COL.FOLDER_URL - 1] || "",
+        photo: folderUrl ? "등록완료" : "미등록",
+        photoUrl: folderUrl,
         photoLink: row[COL.PHOTO_LINK - 1] || "",
+        photoCounts: photoInfo.counts,
+        photoUrls: photoInfo.urls,
         deleteRequest: row[COL.DELETE_REQUEST - 1] || ""
       });
     });

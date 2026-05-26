@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
   Building2,
@@ -30,6 +30,12 @@ const STATUS_CLASS = {
 };
 
 const PHOTO_CATEGORY_OPTIONS = ["계약도면", "시공전", "완료사진", "기타"];
+const PHOTO_UPLOAD_ACCEPT = ".jpg,.jpeg,.jfif,.png,.webp,.heic,.heif,.gif,.bmp,.tif,.tiff,.avif";
+const DRAWING_UPLOAD_ACCEPT = `${PHOTO_UPLOAD_ACCEPT},.pdf`;
+
+function getUploadAccept(category) {
+  return category === "계약도면" ? DRAWING_UPLOAD_ACCEPT : PHOTO_UPLOAD_ACCEPT;
+}
 
 function onlyDigits(value) {
   return String(value || "").replace(/[^0-9]/g, "");
@@ -90,6 +96,36 @@ async function apiPost(payload) {
   }
 }
 
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || "").split(",")[1] || "");
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+function validateUploadFiles(files, category) {
+  const fileList = Array.from(files || []);
+  const maxFiles = 15;
+  const maxFileSize = 20 * 1024 * 1024;
+
+  if (!fileList.length) return { ok: false, message: "첨부할 파일을 선택해 주세요." };
+  if (fileList.length > maxFiles) return { ok: false, message: `한 번에 최대 ${maxFiles}개까지만 등록할 수 있습니다.` };
+
+  for (const file of fileList) {
+    const lowerName = file.name.toLowerCase();
+    const isImage = file.type?.startsWith("image/");
+    const isPdf = file.type === "application/pdf" || lowerName.endsWith(".pdf");
+
+    if (!isImage && !isPdf) return { ok: false, message: "이미지 또는 PDF 파일만 등록할 수 있습니다." };
+    if (file.size > maxFileSize) return { ok: false, message: `${file.name} 파일이 20MB를 초과합니다.` };
+    if (isPdf && category !== "계약도면") return { ok: false, message: "PDF는 계약도면 구분에만 등록해 주세요." };
+  }
+
+  return { ok: true };
+}
+
 function Badge({ children, className = "" }) {
   return <span className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-black leading-none ${className}`}>{children}</span>;
 }
@@ -114,8 +150,40 @@ export default function PartnerInstallerPortal() {
   const [assigningJobId, setAssigningJobId] = useState("");
   const [completingJobId, setCompletingJobId] = useState("");
   const [historySavingJobId, setHistorySavingJobId] = useState("");
+  const [uploadingJobId, setUploadingJobId] = useState("");
+  const [uploadProgress, setUploadProgress] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const [actionMessage, setActionMessage] = useState("");
+
+  useEffect(() => {
+    if (!detailJob?.month || !detailJob?.rowNumber) return;
+
+    let ignore = false;
+
+    const loadPhotoCounts = async () => {
+      try {
+        const url = `${WEBAPP_URL}?action=photoCounts&month=${encodeURIComponent(detailJob.month)}&rowNumber=${encodeURIComponent(detailJob.rowNumber)}&t=${Date.now()}`;
+        const response = await fetch(url);
+        const result = await response.json();
+
+        if (ignore || !result.success) return;
+
+        const key = jobKey(detailJob);
+        applyJobUpdate(key, {
+          photoCounts: result.counts || {},
+          photoUrls: result.urls || {},
+        });
+      } catch (err) {
+        console.error(err);
+      }
+    };
+
+    loadPhotoCounts();
+
+    return () => {
+      ignore = true;
+    };
+  }, [detailJob?.month, detailJob?.rowNumber]);
 
   const visibleJobs = useMemo(() => {
     if (!user) return [];
@@ -433,17 +501,73 @@ export default function PartnerInstallerPortal() {
     }
   };
 
-  const markPhotoUploaded = (jobId, category) => {
-    setJobs((prev) => prev.map((job) => job.id === jobId ? {
-      ...job,
-      photo: "등록완료",
-      photoUrl: "#",
-      photoCounts: {
-        ...job.photoCounts,
-        [category]: (job.photoCounts?.[category] || 0) + 1,
-      },
-    } : job));
-    setUploadJob(null);
+  const uploadPhotoFiles = async (job, category, files) => {
+    if (!job || !user) return false;
+
+    const fileList = Array.from(files || []);
+    const check = validateUploadFiles(fileList, category);
+    const key = jobKey(job);
+
+    if (!check.ok) {
+      setActionMessage(check.message);
+      return false;
+    }
+
+    setUploadingJobId(key);
+    setUploadProgress("");
+    setActionMessage("");
+
+    try {
+      let lastResult = null;
+
+      for (let i = 0; i < fileList.length; i += 1) {
+        const file = fileList[i];
+        setUploadProgress(`파일 준비 중 ${i + 1}/${fileList.length}`);
+        const base64 = await fileToBase64(file);
+
+        setUploadProgress(`업로드 중 ${i + 1}/${fileList.length}`);
+        const result = await apiPost({
+          action: "uploadPhoto",
+          month: job.month || job.sheet || "",
+          rowNumber: job.rowNumber || "",
+          category,
+          fileName: file.name,
+          mimeType: file.type || "application/octet-stream",
+          base64,
+          role: user.role,
+          partnerName: user.partnerName || job.partner || "",
+          engineerName: user.engineerName || job.engineer || "",
+        });
+
+        if (!result.success) {
+          setActionMessage(result.message || "사진등록에 실패했습니다.");
+          return false;
+        }
+
+        lastResult = result;
+      }
+
+      applyJobUpdate(key, (item) => ({
+        ...item,
+        photo: "등록완료",
+        photoUrl: lastResult?.folderUrl || item.photoUrl,
+        photoCounts: {
+          ...item.photoCounts,
+          [category]: (item.photoCounts?.[category] || 0) + fileList.length,
+        },
+      }));
+      setUploadJob(null);
+      setUploadProgress("");
+      setActionMessage(`${category} ${fileList.length}개 파일 등록이 완료되었습니다.`);
+      refreshJobsQuietly();
+      return true;
+    } catch (err) {
+      console.error(err);
+      setActionMessage(err.message || "사진등록 API 연결 실패");
+      return false;
+    } finally {
+      setUploadingJobId("");
+    }
   };
 
   if (screen === "select") {
@@ -491,7 +615,10 @@ export default function PartnerInstallerPortal() {
                 setActionMessage("");
                 setDetailJob(job);
               }}
-              onUpload={() => setUploadJob(job)}
+              onUpload={() => {
+                setActionMessage("");
+                setUploadJob(job);
+              }}
               onHistory={() => setHistoryJob(job)}
               onComplete={() => completeJob(job)}
               completing={completingJobId === jobKey(job)}
@@ -507,7 +634,7 @@ export default function PartnerInstallerPortal() {
           job={detailJob}
           user={user}
           onClose={() => setDetailJob(null)}
-          onUpload={() => { setUploadJob(detailJob); setDetailJob(null); }}
+          onUpload={() => { setActionMessage(""); setUploadJob(detailJob); setDetailJob(null); }}
           onHistory={() => { setHistoryJob(detailJob); setDetailJob(null); }}
           onAssign={assignInstaller}
           engineerOptions={engineerOptions}
@@ -518,7 +645,7 @@ export default function PartnerInstallerPortal() {
         />
       ) : null}
 
-      {uploadJob ? <UploadModal job={uploadJob} onClose={() => setUploadJob(null)} onSubmit={markPhotoUploaded} /> : null}
+      {uploadJob ? <UploadModal job={uploadJob} onClose={() => setUploadJob(null)} onSubmit={uploadPhotoFiles} uploading={uploadingJobId === jobKey(uploadJob)} progress={uploadProgress} message={actionMessage} /> : null}
       {historyJob ? <HistoryModal job={historyJob} onClose={() => setHistoryJob(null)} onSubmit={addHistory} saving={historySavingJobId === jobKey(historyJob)} message={actionMessage} /> : null}
     </div>
   );
@@ -762,8 +889,19 @@ function JobDetailModal({ job, user, onClose, onUpload, onHistory, onAssign, eng
 
         <DetailBox title="사진 / 도면" className="mt-4">
           <div className="grid grid-cols-2 gap-2">
-            {PHOTO_CATEGORY_OPTIONS.map((category) => <div key={category} className="rounded-2xl border bg-slate-50 p-3 text-center text-xs font-black text-slate-600">{category} {job.photoCounts?.[category] || 0}</div>)}
+            {PHOTO_CATEGORY_OPTIONS.map((category) => {
+              const count = job.photoCounts?.[category] || 0;
+              const url = job.photoUrls?.[category] || "";
+
+              return (
+                <div key={category} className="rounded-2xl border bg-slate-50 p-3 text-center text-xs font-black text-slate-600">
+                  <p>{category} {count}</p>
+                  {url ? <a href={url} target="_blank" rel="noreferrer" className="mt-2 inline-block text-blue-700 underline">폴더열기</a> : null}
+                </div>
+              );
+            })}
           </div>
+          {job.photoUrl ? <a href={job.photoUrl} target="_blank" rel="noreferrer" className="mt-3 flex w-full items-center justify-center rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-black text-emerald-700">전체 사진보기</a> : null}
           <button onClick={onUpload} className="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-4 text-sm font-black text-white"><Upload className="h-4 w-4" /> 사진등록</button>
         </DetailBox>
 
@@ -793,22 +931,21 @@ function PhoneLink({ value }) {
   return <a href={`tel:${onlyDigits(phone)}`} className="font-black text-blue-700 underline decoration-blue-300 underline-offset-2"><Phone className="mr-1 inline h-3.5 w-3.5" />{phone}</a>;
 }
 
-function UploadModal({ job, onClose, onSubmit }) {
+function UploadModal({ job, onClose, onSubmit, uploading = false, progress = "", message = "" }) {
   const [category, setCategory] = useState("시공전");
-  const [hasFile, setHasFile] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState("");
+  const [files, setFiles] = useState([]);
+  const [localMessage, setLocalMessage] = useState("");
 
-  const submit = () => {
-    if (!hasFile) {
-      setMessage("첨부할 사진 또는 파일을 선택해 주세요.");
+  const submit = async () => {
+    const check = validateUploadFiles(files, category);
+
+    if (!check.ok) {
+      setLocalMessage(check.message);
       return;
     }
-    setLoading(true);
-    setTimeout(() => {
-      setLoading(false);
-      onSubmit(job.id, category);
-    }, 600);
+
+    setLocalMessage("");
+    await onSubmit(job, category, files);
   };
 
   return (
@@ -826,21 +963,23 @@ function UploadModal({ job, onClose, onSubmit }) {
         <div className="mt-5 space-y-4">
           <div>
             <FieldLabel>사진 구분</FieldLabel>
-            <select value={category} onChange={(e) => setCategory(e.target.value)} className="w-full rounded-2xl border px-4 py-3 font-bold">
+            <select value={category} onChange={(e) => { setCategory(e.target.value); setFiles([]); setLocalMessage(""); }} disabled={uploading} className="w-full rounded-2xl border px-4 py-3 font-bold disabled:opacity-50">
               {PHOTO_CATEGORY_OPTIONS.map((option) => <option key={option}>{option}</option>)}
             </select>
           </div>
           <div>
             <FieldLabel>{category === "계약도면" ? "PDF 또는 이미지 선택" : "갤러리에서 사진 선택"}</FieldLabel>
-            <input type="file" accept={category === "계약도면" ? "image/*,.pdf" : "image/*"} multiple onChange={(e) => setHasFile(!!e.target.files?.length)} className="w-full rounded-2xl border px-4 py-3 text-sm" />
+            <input type="file" accept={getUploadAccept(category)} multiple disabled={uploading} onChange={(e) => { setFiles(Array.from(e.target.files || [])); setLocalMessage(""); }} className="w-full rounded-2xl border px-4 py-3 text-sm disabled:opacity-50" />
+            {files.length ? <p className="mt-2 text-xs font-bold text-emerald-700">선택됨: {files.length}개</p> : null}
           </div>
         </div>
 
-        {message ? <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm font-black text-rose-700">{message}</div> : null}
+        {progress ? <div className="mt-4 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-black text-white"><Loader2 className="mr-2 inline h-4 w-4 animate-spin" />{progress}</div> : null}
+        {localMessage || message ? <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm font-black text-rose-700">{localMessage || message}</div> : null}
 
         <div className="mt-5 grid grid-cols-2 gap-2">
-          <button onClick={onClose} disabled={loading} className="rounded-2xl border px-4 py-3 text-sm font-black disabled:opacity-50">취소</button>
-          <button onClick={submit} disabled={loading} className="flex items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-black text-white disabled:bg-slate-300">{loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} {loading ? "등록 중" : "사진등록"}</button>
+          <button onClick={onClose} disabled={uploading} className="rounded-2xl border px-4 py-3 text-sm font-black disabled:opacity-50">취소</button>
+          <button onClick={submit} disabled={uploading || !files.length} className="flex items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-black text-white disabled:bg-slate-300">{uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} {uploading ? "등록 중" : "사진등록"}</button>
         </div>
       </div>
     </div>
