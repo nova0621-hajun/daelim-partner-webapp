@@ -146,7 +146,7 @@ export default function PartnerInstallerPortal() {
     setLoginMessage("");
   };
 
-  const fetchPartnerJobs = async (loginUser) => {
+  const fetchPartnerJobs = async (loginUser, options = {}) => {
     try {
       const result = await apiPost({
         action: "getPartnerJobs",
@@ -156,14 +156,14 @@ export default function PartnerInstallerPortal() {
       });
 
       if (!result.success) {
-        setLoginMessage(result.message || "현장 목록 조회 실패");
+        if (!options.silent) setLoginMessage(result.message || "현장 목록 조회 실패");
         return [];
       }
 
       return result.rows || [];
     } catch (err) {
       console.error(err);
-      setLoginMessage(err.message || "현장 목록 API 연결 실패");
+      if (!options.silent) setLoginMessage(err.message || "현장 목록 API 연결 실패");
       return [];
     }
   };
@@ -259,11 +259,45 @@ export default function PartnerInstallerPortal() {
     }
   };
 
+  const applyJobUpdate = (targetKey, updater) => {
+    setJobs((prev) => prev.map((item) => {
+      if (jobKey(item) !== targetKey) return item;
+      return typeof updater === "function" ? updater(item) : { ...item, ...updater };
+    }));
+    setDetailJob((current) => {
+      if (!current || jobKey(current) !== targetKey) return current;
+      return typeof updater === "function" ? updater(current) : { ...current, ...updater };
+    });
+    setHistoryJob((current) => {
+      if (!current || jobKey(current) !== targetKey) return current;
+      return typeof updater === "function" ? updater(current) : { ...current, ...updater };
+    });
+  };
+
+  const refreshJobsQuietly = (delay = 1200) => {
+    if (!user) return;
+
+    window.setTimeout(async () => {
+      const rows = await fetchPartnerJobs(user, { silent: true });
+      if (!rows.length) return;
+
+      setJobs(rows);
+      setDetailJob((current) => current ? rows.find((row) => jobKey(row) === jobKey(current)) || current : current);
+      setHistoryJob((current) => current ? rows.find((row) => jobKey(row) === jobKey(current)) || current : current);
+    }, delay);
+  };
+
   const assignInstaller = async (job, engineer) => {
     if (!job || !engineer || !user) return;
 
     const key = jobKey(job);
     const selectedEngineer = engineerOptions.find((item) => item.name === engineer);
+    const nextEngineerPhone = selectedEngineer?.phone || job.engineerPhone || "";
+    const assignedPatch = {
+      engineer,
+      engineerPhone: nextEngineerPhone,
+      status: "엔지니어배정완료",
+    };
 
     setAssigningJobId(key);
     setActionMessage("");
@@ -277,7 +311,7 @@ export default function PartnerInstallerPortal() {
         month: job.month || job.sheet || "",
         partnerName: user.partnerName || job.partner || "",
         engineerName: engineer,
-        engineerPhone: selectedEngineer?.phone || job.engineerPhone || "",
+        engineerPhone: nextEngineerPhone,
       });
 
       if (!result.success) {
@@ -285,21 +319,19 @@ export default function PartnerInstallerPortal() {
         return;
       }
 
-      const rows = await fetchPartnerJobs(user);
-      setJobs(rows);
-      setDetailJob((current) => {
-        if (!current) return current;
-        return rows.find((row) => jobKey(row) === key) || {
-          ...current,
-          engineer,
-          engineerPhone: selectedEngineer?.phone || current.engineerPhone,
-          status: "엔지니어배정완료",
-        };
-      });
+      applyJobUpdate(key, assignedPatch);
       setActionMessage("엔지니어 배정이 저장되었습니다.");
+      refreshJobsQuietly();
     } catch (err) {
       console.error(err);
-      setActionMessage(err.message || "엔지니어 배정 API 연결 실패");
+      if (String(err?.message || "").includes("Failed to fetch")) {
+        applyJobUpdate(key, assignedPatch);
+        setActionMessage("배정 요청을 보냈습니다. 화면에 먼저 반영했고, 잠시 후 자동으로 다시 확인합니다.");
+        refreshJobsQuietly(1800);
+        refreshJobsQuietly(4500);
+      } else {
+        setActionMessage(err.message || "엔지니어 배정 API 연결 실패");
+      }
     } finally {
       setAssigningJobId("");
     }
@@ -309,6 +341,7 @@ export default function PartnerInstallerPortal() {
     if (!job || !user) return;
 
     const key = jobKey(job);
+    const completePatch = { status: "시공완료" };
     setCompletingJobId(key);
     setActionMessage("");
 
@@ -329,16 +362,19 @@ export default function PartnerInstallerPortal() {
         return;
       }
 
-      const rows = await fetchPartnerJobs(user);
-      setJobs(rows);
-      setDetailJob((current) => {
-        if (!current) return current;
-        return rows.find((row) => jobKey(row) === key) || { ...current, status: "시공완료" };
-      });
+      applyJobUpdate(key, completePatch);
       setActionMessage("완료보고가 저장되었습니다.");
+      refreshJobsQuietly();
     } catch (err) {
       console.error(err);
-      setActionMessage(err.message || "완료보고 API 연결 실패");
+      if (String(err?.message || "").includes("Failed to fetch")) {
+        applyJobUpdate(key, completePatch);
+        setActionMessage("완료보고 요청을 보냈습니다. 화면에 먼저 반영했고, 잠시 후 자동으로 다시 확인합니다.");
+        refreshJobsQuietly(1800);
+        refreshJobsQuietly(4500);
+      } else {
+        setActionMessage(err.message || "완료보고 API 연결 실패");
+      }
     } finally {
       setCompletingJobId("");
     }
@@ -349,6 +385,12 @@ export default function PartnerInstallerPortal() {
     if (!job || !user) return;
 
     const key = jobKey(job);
+    const nextHistoryLine = `${new Date().toLocaleString("ko-KR")} ${user.name || user.engineerName || user.partnerName || "사용자"}: ${text.trim()}`;
+    const appendHistory = (item) => ({
+      ...item,
+      history: [item.history, nextHistoryLine].filter(Boolean).join("\n"),
+    });
+
     setHistorySavingJobId(key);
     setActionMessage("");
 
@@ -371,14 +413,21 @@ export default function PartnerInstallerPortal() {
         return;
       }
 
-      const rows = await fetchPartnerJobs(user);
-      setJobs(rows);
-      setDetailJob((current) => current ? rows.find((row) => jobKey(row) === jobKey(current)) || current : current);
+      applyJobUpdate(key, appendHistory);
       setHistoryJob(null);
       setActionMessage("이력등록이 저장되었습니다.");
+      refreshJobsQuietly();
     } catch (err) {
       console.error(err);
-      setActionMessage(err.message || "이력등록 API 연결 실패");
+      if (String(err?.message || "").includes("Failed to fetch")) {
+        applyJobUpdate(key, appendHistory);
+        setHistoryJob(null);
+        setActionMessage("이력등록 요청을 보냈습니다. 화면에 먼저 반영했고, 잠시 후 자동으로 다시 확인합니다.");
+        refreshJobsQuietly(1800);
+        refreshJobsQuietly(4500);
+      } else {
+        setActionMessage(err.message || "이력등록 API 연결 실패");
+      }
     } finally {
       setHistorySavingJobId("");
     }
