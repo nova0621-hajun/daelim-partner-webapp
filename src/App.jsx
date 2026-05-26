@@ -21,100 +21,6 @@ import {
 const WEBAPP_URL =
   "https://script.google.com/macros/s/AKfycbzunWIU75WOPAnZLS9MGqgLLJ9-P4P1f59gNpggLcWcEGs_P0NArHOLdKNwwPQGekMewg/exec";
 
-const MOCK_USERS = {
-  partner: {
-    id: "partner01",
-    password: "1234",
-    name: "으뜸인테리어",
-    role: "partner",
-    partnerName: "으뜸인테리어",
-  },
-  engineer: {
-    id: "woo",
-    password: "1234",
-    name: "우재경",
-    role: "engineer",
-    partnerName: "으뜸인테리어",
-    engineerName: "우재경",
-  },
-};
-
-const MOCK_JOBS = [
-  {
-    id: "JOB-001",
-    customer: "스튜디오 영통",
-    manager: "최환철",
-    managerPhone: "010-3016-8698",
-    phone: "010-2464-9020",
-    address: "용인시 기흥구 신갈동 151-1 인성마을 현대A 102동 1102호",
-    item: "부엌, 현관, 붙박이",
-    orderStatus: "발주완료",
-    living: "비거주",
-    assembly: "조립출고",
-    status: "시공계획확정",
-    installDate: "2026-05-21",
-    endDate: "2026-05-21",
-    stoneDate: "2026-05-21",
-    partner: "으뜸인테리어",
-    engineer: "우재경",
-    engineerPhone: "010-4118-3472",
-    photo: "미등록",
-    photoUrl: "#",
-    siteMemo: `1층 비번 없음, 세대비번 1234*
-배송시간 07:30분`,
-    history: "파우더장 유리도어, 800불박이 옷걸이봉 사전미출로 한송 마감 예정",
-    photoCounts: { 계약도면: 0, 시공전: 0, 완료사진: 0, 기타: 0 },
-  },
-  {
-    id: "JOB-002",
-    customer: "최서현",
-    manager: "최하준",
-    managerPhone: "010-3200-0621",
-    phone: "010-0000-0000",
-    address: "서울 영등포구 버드나루로 84",
-    item: "부엌",
-    orderStatus: "발주완료",
-    living: "거주",
-    assembly: "일반출고",
-    status: "엔지니어배정완료",
-    installDate: "2026-07-31",
-    endDate: "2026-07-31",
-    stoneDate: "",
-    partner: "으뜸인테리어",
-    engineer: "우재경",
-    engineerPhone: "010-4118-3472",
-    photo: "등록완료",
-    photoUrl: "#",
-    siteMemo: "엘리베이터 사용 가능",
-    history: "",
-    photoCounts: { 계약도면: 1, 시공전: 3, 완료사진: 0, 기타: 0 },
-  },
-  {
-    id: "JOB-003",
-    customer: "사용자",
-    manager: "최하준",
-    managerPhone: "010-3200-0621",
-    phone: "010-0000-0000",
-    address: "서울 강서구 화곡동",
-    item: "현관",
-    orderStatus: "계약중",
-    living: "비거주",
-    assembly: "조립출고",
-    status: "엔지니어배정요청",
-    installDate: "2026-07-02",
-    endDate: "2026-07-02",
-    stoneDate: "",
-    partner: "으뜸인테리어",
-    engineer: "미배정",
-    engineerPhone: "",
-    photo: "미등록",
-    photoUrl: "",
-    siteMemo: "엔지니어 배정 필요",
-    history: "",
-    photoCounts: { 계약도면: 0, 시공전: 0, 완료사진: 0, 기타: 0 },
-  },
-];
-
 const STATUS_CLASS = {
   엔지니어배정요청: "border-amber-200 bg-amber-50 text-amber-700",
   엔지니어배정완료: "border-blue-200 bg-blue-50 text-blue-700",
@@ -124,13 +30,6 @@ const STATUS_CLASS = {
 };
 
 const PHOTO_CATEGORY_OPTIONS = ["계약도면", "시공전", "완료사진", "기타"];
-const ENGINEER_OPTIONS = [
-  { name: "우재경", phone: "010-4118-3472" },
-  { name: "김기사", phone: "" },
-  { name: "박기사", phone: "" },
-  { name: "최기사", phone: "" },
-];
-const ENGINEERS = ENGINEER_OPTIONS.map((engineer) => engineer.name);
 
 function onlyDigits(value) {
   return String(value || "").replace(/[^0-9]/g, "");
@@ -160,6 +59,19 @@ function jobKey(job) {
   return `${job.month || job.sheet || ""}-${job.rowNumber || job.id || job.jobId || ""}`;
 }
 
+function buildEngineerOptions(data, partnerName) {
+  const installersByPartner = data?.installersByPartner || {};
+  const phoneByInstaller = data?.phoneByInstaller || {};
+  const names = installersByPartner[partnerName] || [];
+
+  return names
+    .map((name) => ({
+      name: String(name || "").trim(),
+      phone: String(phoneByInstaller[name] || "").trim(),
+    }))
+    .filter((engineer) => engineer.name);
+}
+
 function Badge({ children, className = "" }) {
   return <span className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-black leading-none ${className}`}>{children}</span>;
 }
@@ -175,7 +87,8 @@ export default function PartnerInstallerPortal() {
   const [loginPw, setLoginPw] = useState("");
   const [loginMessage, setLoginMessage] = useState("");
   const [user, setUser] = useState(null);
-  const [jobs, setJobs] = useState(MOCK_JOBS);
+  const [jobs, setJobs] = useState([]);
+  const [engineerOptions, setEngineerOptions] = useState([]);
   const [activeTab, setActiveTab] = useState("today");
   const [detailJob, setDetailJob] = useState(null);
   const [uploadJob, setUploadJob] = useState(null);
@@ -245,6 +158,22 @@ export default function PartnerInstallerPortal() {
     }
   };
 
+  const fetchEngineerOptions = async (loginUser) => {
+    if (!loginUser?.partnerName) return [];
+
+    try {
+      const response = await fetch(`${WEBAPP_URL}?action=partnerInstallerData&t=${Date.now()}`);
+      const result = await response.json();
+
+      if (!result.success) return [];
+
+      return buildEngineerOptions(result, loginUser.partnerName);
+    } catch (err) {
+      console.error(err);
+      return [];
+    }
+  };
+
   const handleLogin = async () => {
     const trimmedId = loginId.trim();
     const trimmedPw = loginPw.trim();
@@ -286,10 +215,14 @@ export default function PartnerInstallerPortal() {
         engineerPhone: result.engineerPhone || result.phone || "",
       };
 
-      const rows = await fetchPartnerJobs(loginUser);
+      const [rows, engineers] = await Promise.all([
+        fetchPartnerJobs(loginUser),
+        fetchEngineerOptions(loginUser),
+      ]);
 
       setUser(loginUser);
       setJobs(rows);
+      setEngineerOptions(engineers);
       setActiveTab("today");
       setScreen("portal");
       setLoginMessage("");
@@ -305,6 +238,7 @@ export default function PartnerInstallerPortal() {
     setDetailJob(null);
     setUploadJob(null);
     setHistoryJob(null);
+    setEngineerOptions([]);
   };
 
   const refreshJobs = async (message = "현장 목록을 새로고침했습니다.") => {
@@ -327,7 +261,7 @@ export default function PartnerInstallerPortal() {
     if (!job || !engineer || !user) return;
 
     const key = jobKey(job);
-    const selectedEngineer = ENGINEER_OPTIONS.find((item) => item.name === engineer);
+    const selectedEngineer = engineerOptions.find((item) => item.name === engineer);
 
     setAssigningJobId(key);
     setActionMessage("");
@@ -549,6 +483,7 @@ export default function PartnerInstallerPortal() {
           onUpload={() => { setUploadJob(detailJob); setDetailJob(null); }}
           onHistory={() => { setHistoryJob(detailJob); setDetailJob(null); }}
           onAssign={assignInstaller}
+          engineerOptions={engineerOptions}
           assigning={assigningJobId === jobKey(detailJob)}
           completing={completingJobId === jobKey(detailJob)}
           actionMessage={actionMessage}
@@ -738,8 +673,9 @@ function Info({ label, value }) {
   return <div><p className="text-[11px] font-black text-slate-400">{label}</p><p className="mt-1 font-black text-slate-700">{value || "-"}</p></div>;
 }
 
-function JobDetailModal({ job, user, onClose, onUpload, onHistory, onAssign, assigning = false, completing = false, actionMessage = "", onComplete }) {
+function JobDetailModal({ job, user, onClose, onUpload, onHistory, onAssign, engineerOptions = [], assigning = false, completing = false, actionMessage = "", onComplete }) {
   const [engineer, setInstaller] = useState(job.engineer === "미배정" ? "" : job.engineer || "");
+  const engineerNames = engineerOptions.map((item) => item.name);
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 md:items-center md:p-4">
@@ -781,7 +717,7 @@ function JobDetailModal({ job, user, onClose, onUpload, onHistory, onAssign, ass
             <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
               <select value={engineer} onChange={(e) => setInstaller(e.target.value)} disabled={assigning} className="rounded-2xl border bg-white px-3 py-3 text-sm font-bold disabled:opacity-60">
                 <option value="">엔지니어 선택</option>
-                {ENGINEERS.map((name) => <option key={name} value={name}>{name}</option>)}
+                {engineerNames.map((name) => <option key={name} value={name}>{name}</option>)}
               </select>
               <button onClick={() => engineer && onAssign(job, engineer)} disabled={!engineer || assigning} className="flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-sm font-black text-white disabled:bg-blue-300">
                 {assigning ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
