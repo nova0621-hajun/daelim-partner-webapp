@@ -45,7 +45,7 @@ function getPartnerJobs(body) {
 
     if (lastRow < DATA_START_ROW) return;
 
-    const lastColumn = Math.max(COL.DELETE_REQUEST, COL.EDIT_LOCKED || 0);
+    const lastColumn = Math.max(COL.DELETE_REQUEST, COL.EDIT_LOCKED || 0, getMaxPartnerPaymentColumn_());
     const values = sheet
       .getRange(
         DATA_START_ROW,
@@ -89,7 +89,7 @@ function getPartnerJobs(body) {
         if (String(engineer || "").trim() !== engineerName) return;
       }
 
-      rows.push({
+      const apiRow = {
         month: sheetName,
         rowNumber: rowNumber,
 
@@ -131,7 +131,13 @@ function getPartnerJobs(body) {
         editLock: editLock,
         editLocked: isLockedValue_(editLock),
         deleteRequest: row[COL.DELETE_REQUEST - 1] || ""
-      });
+      };
+
+      if (role === "partner") {
+        apiRow.partnerPaymentAmount = getPartnerPaymentAmountFromRow_(row);
+      }
+
+      rows.push(apiRow);
     });
   });
 
@@ -621,6 +627,70 @@ function isLockedValue_(value) {
   const text = String(value || "").trim().toUpperCase();
 
   return text === "Y" || text === "TRUE" || text === "잠금";
+}
+
+
+/**
+ * partner 권한에만 내려줄 지급시공비 조회
+ *
+ * 공통 Config의 컬럼명이 현장마다 다를 수 있어 후보 키를 순서대로 확인한다.
+ * engineer 응답에는 이 값을 절대 포함하지 않는다.
+ *
+ * @param {Array} row 행 데이터
+ * @returns {*} 지급시공비 값
+ */
+function getPartnerPaymentAmountFromRow_(row) {
+  const candidates = getPartnerPaymentColumnCandidates_();
+
+  for (let i = 0; i < candidates.length; i++) {
+    const key = candidates[i];
+    const column = COL[key];
+
+    if (!column) continue;
+
+    const value = row[column - 1];
+
+    if (value !== "" && value !== null && value !== undefined) {
+      return value;
+    }
+  }
+
+  return "";
+}
+
+
+/**
+ * 지급시공비 후보 컬럼 중 가장 큰 컬럼 번호 조회
+ *
+ * @returns {number} 최대 컬럼 번호
+ */
+function getMaxPartnerPaymentColumn_() {
+  const candidates = getPartnerPaymentColumnCandidates_();
+  let maxColumn = 0;
+
+  candidates.forEach(function(key) {
+    if (COL[key]) maxColumn = Math.max(maxColumn, COL[key]);
+  });
+
+  return maxColumn;
+}
+
+
+/**
+ * 지급시공비 컬럼 후보 키 목록
+ *
+ * @returns {Array<string>} 후보 키 목록
+ */
+function getPartnerPaymentColumnCandidates_() {
+  return [
+    "PARTNER_PAYMENT",
+    "INSTALL_PAYMENT",
+    "INSTALL_COST",
+    "INSTALL_PRICE",
+    "CONTRACT_PRICE",
+    "PAYMENT",
+    "PRICE"
+  ];
 }
 
 

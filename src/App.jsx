@@ -1,11 +1,10 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Building2,
   Camera,
   CheckCircle2,
   ClipboardList,
   Copy,
-  FileText,
   Loader2,
   Lock,
   LogOut,
@@ -46,6 +45,15 @@ function formatPhone(value) {
   if (digits.length <= 3) return digits;
   if (digits.length <= 7) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
   return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
+}
+
+function numberValue(value) {
+  return Number(String(value || "").replace(/[^0-9.-]/g, "")) || 0;
+}
+
+function formatMoney(value) {
+  const amount = numberValue(value);
+  return `${amount.toLocaleString("ko-KR")}원`;
 }
 
 function shortDate(value) {
@@ -97,6 +105,14 @@ function completionPhotoCount(job) {
 
 function hasCompletionPhoto(job) {
   return completionPhotoCount(job) > 0;
+}
+
+function partnerPaymentAmount(job) {
+  return numberValue(job?.partnerPaymentAmount || job?.paymentAmount || job?.installPayment || job?.contractPrice);
+}
+
+function monthPaymentTotal(rows) {
+  return rows.reduce((sum, job) => sum + partnerPaymentAmount(job), 0);
 }
 
 function buildEngineerOptions(data, partnerName) {
@@ -190,6 +206,7 @@ export default function PartnerInstallerPortal() {
   const [refreshing, setRefreshing] = useState(false);
   const [actionMessage, setActionMessage] = useState("");
   const [copiedAddressJobId, setCopiedAddressJobId] = useState("");
+  const listRef = useRef(null);
 
   useEffect(() => {
     if (!detailJob?.month || !detailJob?.rowNumber) return;
@@ -235,7 +252,6 @@ export default function PartnerInstallerPortal() {
     if (activeTab === "photo") return visibleJobs.filter((job) => job.status !== "시공완료" && !hasCompletionPhoto(job));
     if (activeTab === "complete") return visibleJobs.filter((job) => job.status === "시공완료");
     if (activeTab === "progress") return visibleJobs.filter((job) => job.status !== "시공완료");
-    if (activeTab === "locked") return visibleJobs.filter((job) => isJobLocked(job));
     return visibleJobs;
   }, [activeTab, visibleJobs]);
 
@@ -245,37 +261,32 @@ export default function PartnerInstallerPortal() {
     photoMissing: visibleJobs.filter((job) => job.photo !== "등록완료").length,
     completePhotoMissing: visibleJobs.filter((job) => job.status !== "시공완료" && !hasCompletionPhoto(job)).length,
     complete: visibleJobs.filter((job) => job.status === "시공완료").length,
-    locked: visibleJobs.filter((job) => isJobLocked(job)).length,
   }), [visibleJobs]);
 
-  const engineerSummary = useMemo(() => {
-    if (user?.role !== "partner") return [];
+  const groupedJobs = useMemo(() => {
+    const groups = new Map();
 
-    const map = new Map();
-
-    visibleJobs.forEach((job) => {
-      const name = job.engineer || "미배정";
-      const current = map.get(name) || {
-        name,
-        total: 0,
-        progress: 0,
-        complete: 0,
-        locked: 0,
-      };
-
-      current.total += 1;
-      if (job.status === "시공완료") current.complete += 1;
-      else current.progress += 1;
-      if (isJobLocked(job)) current.locked += 1;
-      map.set(name, current);
+    filteredJobs.forEach((job) => {
+      const month = job.month || "월 미지정";
+      const rows = groups.get(month) || [];
+      rows.push(job);
+      groups.set(month, rows);
     });
 
-    return Array.from(map.values()).sort((a, b) => {
-      if (a.name === "미배정") return -1;
-      if (b.name === "미배정") return 1;
-      return b.total - a.total || a.name.localeCompare(b.name, "ko");
-    });
-  }, [user, visibleJobs]);
+    return Array.from(groups.entries()).map(([month, rows]) => ({ month, rows }));
+  }, [filteredJobs]);
+
+  const paymentTotal = useMemo(() => {
+    if (user?.role !== "partner") return 0;
+    return monthPaymentTotal(filteredJobs);
+  }, [filteredJobs, user]);
+
+  const selectTab = (tab) => {
+    setActiveTab(tab);
+    window.setTimeout(() => {
+      listRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 80);
+  };
 
   const fetchPartnerJobs = async (loginUser, options = {}) => {
     try {
@@ -779,36 +790,50 @@ export default function PartnerInstallerPortal() {
     <div className="min-h-screen bg-slate-50 p-3 text-slate-900 md:p-6">
       <div className="mx-auto max-w-5xl space-y-4">
         <PortalHeader user={user} onLogout={handleLogout} />
-        <StatGrid user={user} stats={stats} setActiveTab={setActiveTab} />
-        <EngineerSummary user={user} rows={engineerSummary} />
-        <TabBar user={user} activeTab={activeTab} setActiveTab={setActiveTab} />
+        <StatGrid user={user} stats={stats} setActiveTab={selectTab} />
+        <TabBar user={user} activeTab={activeTab} setActiveTab={selectTab} />
 
-        <section className="space-y-3 rounded-3xl bg-white p-4 shadow-sm md:p-5">
+        <section ref={listRef} className="scroll-mt-4 space-y-3 rounded-3xl bg-white p-4 shadow-sm md:p-5">
           <div className="flex items-end justify-between gap-3">
             <div>
               <h2 className="text-lg font-black">{user.role === "partner" ? "협력사 현장 목록" : "내 현장 목록"}</h2>
-              <p className="mt-1 text-xs font-medium text-slate-500">총 {filteredJobs.length}건 표시 중</p>
+              <p className="mt-1 text-xs font-medium text-slate-500">
+                총 {filteredJobs.length}건 표시 중{user.role === "partner" ? ` · 표시 합계 ${formatMoney(paymentTotal)}` : ""}
+              </p>
             </div>
             <button onClick={() => refreshJobs()} disabled={refreshing} className="rounded-2xl border bg-white px-3 py-2 text-xs font-black text-slate-600 disabled:opacity-50">{refreshing ? "조회중" : "새로고침"}</button>
           </div>
           {actionMessage ? <div className="rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-xs font-bold text-blue-800">{actionMessage}</div> : null}
 
-          {filteredJobs.length ? filteredJobs.map((job) => (
-            <JobCard
-              key={jobKey(job)}
-              job={job}
-              user={user}
-              onDetail={() => {
-                setActionMessage("");
-                setDetailJob(job);
-              }}
-              onUpload={() => {
-                openUpload(job);
-              }}
-              onHistory={() => openHistory(job)}
-              onComplete={() => completeJob(job)}
-              completing={completingJobId === jobKey(job)}
-            />
+          {groupedJobs.length ? groupedJobs.map(({ month, rows }) => (
+            <section key={month} className="rounded-3xl border bg-slate-50 p-3">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-black text-slate-800">{month}</h3>
+                  <p className="mt-0.5 text-[11px] font-bold text-slate-500">{rows.length}건{user.role === "partner" ? ` · 월 합계 ${formatMoney(monthPaymentTotal(rows))}` : ""}</p>
+                </div>
+                {user.role === "partner" ? <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700">{formatMoney(monthPaymentTotal(rows))}</Badge> : null}
+              </div>
+              <div className="space-y-3">
+                {rows.map((job) => (
+                  <JobCard
+                    key={jobKey(job)}
+                    job={job}
+                    user={user}
+                    onDetail={() => {
+                      setActionMessage("");
+                      setDetailJob(job);
+                    }}
+                    onUpload={() => {
+                      openUpload(job);
+                    }}
+                    onHistory={() => openHistory(job)}
+                    onComplete={() => completeJob(job)}
+                    completing={completingJobId === jobKey(job)}
+                  />
+                ))}
+              </div>
+            </section>
           )) : (
             <div className="rounded-3xl border border-dashed p-8 text-center text-sm font-bold text-slate-400">표시할 현장이 없습니다.</div>
           )}
@@ -922,17 +947,15 @@ function StatGrid({ user, stats, setActiveTab }) {
     ["엔지니어 미배정", stats.unassigned, "unassigned", Users],
     ["완료사진 필요", stats.completePhotoMissing, "photo", Camera],
     ["완료 현장", stats.complete, "complete", CheckCircle2],
-    ["잠금 현장", stats.locked, "locked", Lock],
   ] : [
     ["내 현장", stats.total, "today", ClipboardList],
     ["진행중", stats.total - stats.complete, "progress", ShieldCheck],
     ["완료사진 필요", stats.completePhotoMissing, "photo", Camera],
     ["완료 현장", stats.complete, "complete", CheckCircle2],
-    ["잠금 현장", stats.locked, "locked", Lock],
   ];
 
   return (
-    <section className="grid grid-cols-2 gap-2 md:grid-cols-5">
+    <section className="grid grid-cols-2 gap-2 md:grid-cols-4">
       {cards.map(([title, value, tab, Icon]) => (
         <button key={title} onClick={() => setActiveTab(tab)} className="rounded-3xl border bg-white p-4 text-left shadow-sm active:scale-[0.99]">
           <div className="flex items-center justify-between gap-2">
@@ -946,45 +969,14 @@ function StatGrid({ user, stats, setActiveTab }) {
   );
 }
 
-function EngineerSummary({ user, rows }) {
-  if (user.role !== "partner" || !rows.length) return null;
-
-  return (
-    <section className="rounded-3xl bg-white p-4 shadow-sm md:p-5">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-black">엔지니어별 현황</h2>
-          <p className="mt-1 text-xs font-medium text-slate-500">배정, 진행, 완료, 잠금 건수를 한 번에 확인합니다.</p>
-        </div>
-        <FileText className="h-5 w-5 text-slate-400" />
-      </div>
-      <div className="mt-4 grid grid-cols-1 gap-2 md:grid-cols-3">
-        {rows.slice(0, 6).map((row) => (
-          <div key={row.name} className="rounded-2xl border bg-slate-50 p-3">
-            <div className="flex items-center justify-between gap-2">
-              <p className="truncate text-sm font-black text-slate-800">{row.name}</p>
-              <Badge className={row.name === "미배정" ? "border-amber-200 bg-amber-50 text-amber-700" : "border-slate-200 bg-white text-slate-600"}>{row.total}건</Badge>
-            </div>
-            <div className="mt-3 grid grid-cols-3 gap-2 text-center text-[11px] font-black">
-              <div className="rounded-xl bg-white p-2 text-blue-700">진행 {row.progress}</div>
-              <div className="rounded-xl bg-white p-2 text-emerald-700">완료 {row.complete}</div>
-              <div className="rounded-xl bg-white p-2 text-rose-700">잠금 {row.locked}</div>
-            </div>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
 function TabBar({ user, activeTab, setActiveTab }) {
   const tabs = user.role === "partner"
-    ? [["today", "전체"], ["unassigned", "미배정"], ["photo", "사진필요"], ["progress", "진행중"], ["complete", "완료"], ["locked", "잠금"]]
-    : [["today", "전체"], ["progress", "진행중"], ["photo", "사진필요"], ["complete", "완료"], ["locked", "잠금"]];
+    ? [["today", "전체"], ["unassigned", "미배정"], ["photo", "사진필요"], ["progress", "진행중"], ["complete", "완료"]]
+    : [["today", "전체"], ["progress", "진행중"], ["photo", "사진필요"], ["complete", "완료"]];
 
   return (
     <nav className="sticky top-0 z-30 rounded-3xl border bg-white/95 p-1 shadow-sm backdrop-blur">
-      <div className={`grid gap-1 ${tabs.length === 6 ? "grid-cols-6" : "grid-cols-5"}`}>
+      <div className={`grid gap-1 ${tabs.length === 5 ? "grid-cols-5" : "grid-cols-4"}`}>
         {tabs.map(([key, label]) => (
           <button key={key} onClick={() => setActiveTab(key)} className={`rounded-2xl px-2 py-3 text-[12px] font-black ${activeTab === key ? "bg-slate-900 text-white" : "text-slate-500"}`}>{label}</button>
         ))}
@@ -1017,6 +1009,7 @@ function JobCard({ job, user, onDetail, onUpload, onHistory, onComplete, complet
         <Info label="아이템" value={job.item} />
         <Info label="담당자" value={job.manager} />
         <Info label="기사" value={job.engineer || "미배정"} />
+        {user.role === "partner" ? <Info label="지급시공비" value={formatMoney(partnerPaymentAmount(job))} /> : null}
       </div>
 
       <div className="mt-4 grid grid-cols-2 gap-2 md:grid-cols-4">
@@ -1105,6 +1098,7 @@ function JobDetailModal({ job, user, onClose, onUpload, onHistory, onAssign, eng
             <DetailRow label="협력사" value={job.partner} />
             <DetailRow label="시공엔지니어" value={job.engineer || "미배정"} />
             <DetailRow label="엔지니어 연락처" value={<PhoneLink value={job.engineerPhone} />} />
+            {user.role === "partner" ? <DetailRow label="지급시공비" value={formatMoney(partnerPaymentAmount(job))} /> : null}
           </DetailBox>
         </div>
 
