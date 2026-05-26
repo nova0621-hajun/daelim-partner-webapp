@@ -20,6 +20,7 @@ import {
 
 const WEBAPP_URL =
   "https://script.google.com/macros/s/AKfycbzunWIU75WOPAnZLS9MGqgLLJ9-P4P1f59gNpggLcWcEGs_P0NArHOLdKNwwPQGekMewg/exec";
+const SESSION_STORAGE_KEY = "daelimPartnerPortalUser";
 
 const STATUS_CLASS = {
   엔지니어배정요청: "border-amber-200 bg-amber-50 text-amber-700",
@@ -140,9 +141,11 @@ export default function PartnerInstallerPortal() {
   const [loginId, setLoginId] = useState("");
   const [loginPw, setLoginPw] = useState("");
   const [loginMessage, setLoginMessage] = useState("");
+  const [loginLoading, setLoginLoading] = useState(false);
   const [user, setUser] = useState(null);
   const [jobs, setJobs] = useState([]);
   const [engineerOptions, setEngineerOptions] = useState([]);
+  const [restoringSession, setRestoringSession] = useState(true);
   const [activeTab, setActiveTab] = useState("today");
   const [detailJob, setDetailJob] = useState(null);
   const [uploadJob, setUploadJob] = useState(null);
@@ -209,8 +212,8 @@ export default function PartnerInstallerPortal() {
   const startLogin = (type) => {
     setLoginType(type);
     setScreen("login");
-    setLoginId(type === "partner" ? "partner01" : "woo");
-    setLoginPw("1234");
+    setLoginId("");
+    setLoginPw("");
     setLoginMessage("");
   };
 
@@ -252,7 +255,47 @@ export default function PartnerInstallerPortal() {
     }
   };
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const restoreSession = async () => {
+      try {
+        const saved = window.localStorage.getItem(SESSION_STORAGE_KEY);
+        if (!saved) return;
+
+        const savedUser = JSON.parse(saved);
+        if (!savedUser?.role || !savedUser?.name) return;
+
+        const [rows, engineers] = await Promise.all([
+          fetchPartnerJobs(savedUser, { silent: true }),
+          fetchEngineerOptions(savedUser),
+        ]);
+
+        if (cancelled) return;
+
+        setUser(savedUser);
+        setJobs(rows);
+        setEngineerOptions(engineers);
+        setScreen("portal");
+        setActiveTab("today");
+      } catch (err) {
+        console.error(err);
+        window.localStorage.removeItem(SESSION_STORAGE_KEY);
+      } finally {
+        if (!cancelled) setRestoringSession(false);
+      }
+    };
+
+    restoreSession();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const handleLogin = async () => {
+    if (loginLoading) return;
+
     const trimmedId = loginId.trim();
     const trimmedPw = loginPw.trim();
 
@@ -262,6 +305,7 @@ export default function PartnerInstallerPortal() {
     }
 
     setLoginMessage("로그인 확인 중입니다.");
+    setLoginLoading(true);
 
     try {
       const result = await apiPost({
@@ -293,16 +337,20 @@ export default function PartnerInstallerPortal() {
       setUser(loginUser);
       setJobs(rows);
       setEngineerOptions(engineers);
+      window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(loginUser));
       setActiveTab("today");
       setScreen("portal");
       setLoginMessage("");
     } catch (err) {
       console.error(err);
       setLoginMessage(err.message || "로그인 API 연결 실패");
+    } finally {
+      setLoginLoading(false);
     }
   };
 
   const handleLogout = () => {
+    window.localStorage.removeItem(SESSION_STORAGE_KEY);
     setUser(null);
     setScreen("select");
     setDetailJob(null);
@@ -571,6 +619,17 @@ export default function PartnerInstallerPortal() {
   };
 
   if (screen === "select") {
+    if (restoringSession) {
+      return (
+        <main className="flex min-h-screen items-center justify-center bg-slate-50 p-5">
+          <div className="rounded-3xl bg-white p-6 text-center shadow-sm">
+            <Loader2 className="mx-auto h-6 w-6 animate-spin text-slate-500" />
+            <p className="mt-3 text-sm font-black text-slate-600">로그인 정보를 확인 중입니다.</p>
+          </div>
+        </main>
+      );
+    }
+
     return <LoginSelect onSelect={startLogin} />;
   }
 
@@ -583,6 +642,7 @@ export default function PartnerInstallerPortal() {
         setId={setLoginId}
         setPassword={setLoginPw}
         message={loginMessage}
+        loading={loginLoading}
         onBack={() => setScreen("select")}
         onSubmit={handleLogin}
       />
@@ -680,15 +740,20 @@ function LoginSelect({ onSelect }) {
         </div>
 
         <div className="mt-5 rounded-3xl border border-white/10 bg-white/5 p-4 text-xs leading-relaxed text-slate-300">
-          테스트 계정은 다음 화면에서 자동 입력됩니다. 실제 운영 시에는 Google Sheets의 사용자권한 시트와 연결합니다.
+          Google Spreadsheet에 등록된 협력사 또는 시공엔지니어 계정으로 로그인합니다.
         </div>
       </div>
     </main>
   );
 }
 
-function LoginForm({ type, id, password, setId, setPassword, message, onBack, onSubmit }) {
+function LoginForm({ type, id, password, setId, setPassword, message, loading = false, onBack, onSubmit }) {
   const isPartner = type === "partner";
+  const submitOnEnter = (event) => {
+    if (event.key !== "Enter") return;
+    onSubmit();
+  };
+
   return (
     <main className="flex min-h-screen items-center justify-center bg-slate-50 p-5">
       <div className="w-full max-w-md rounded-[2rem] bg-white p-6 shadow-xl">
@@ -699,25 +764,25 @@ function LoginForm({ type, id, password, setId, setPassword, message, onBack, on
           </div>
           <div>
             <h1 className="text-2xl font-black">{isPartner ? "협력사 로그인" : "시공엔지니어 로그인"}</h1>
-            <p className="mt-1 text-xs font-bold text-slate-500">테스트 계정이 자동 입력되어 있습니다.</p>
+            <p className="mt-1 text-xs font-bold text-slate-500">등록된 계정 정보를 입력해 주세요.</p>
           </div>
         </div>
 
         <div className="mt-6 space-y-4">
           <div>
             <FieldLabel>{isPartner ? "협력사 ID" : "기사 ID"}</FieldLabel>
-            <input value={id} onChange={(e) => setId(e.target.value)} className="w-full rounded-2xl border px-4 py-3 text-base font-bold" />
+            <input value={id} onKeyDown={submitOnEnter} onChange={(e) => setId(e.target.value)} disabled={loading} className="w-full rounded-2xl border px-4 py-3 text-base font-bold disabled:opacity-60" />
           </div>
           <div>
             <FieldLabel>비밀번호</FieldLabel>
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full rounded-2xl border px-4 py-3 text-base font-bold" />
+            <input type="password" value={password} onKeyDown={submitOnEnter} onChange={(e) => setPassword(e.target.value)} disabled={loading} className="w-full rounded-2xl border px-4 py-3 text-base font-bold disabled:opacity-60" />
           </div>
         </div>
 
         {message ? <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm font-bold text-rose-700">{message}</div> : null}
 
-        <button onClick={onSubmit} className="mt-6 flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-4 text-sm font-black text-white">
-          <Lock className="h-4 w-4" /> 로그인
+        <button onClick={onSubmit} disabled={loading} className="mt-6 flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-4 text-sm font-black text-white disabled:bg-slate-300">
+          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />} {loading ? "확인 중" : "로그인"}
         </button>
       </div>
     </main>
@@ -789,6 +854,8 @@ function TabBar({ user, activeTab, setActiveTab }) {
 }
 
 function JobCard({ job, user, onDetail, onUpload, onHistory, onComplete, completing = false }) {
+  const isComplete = job.status === "시공완료";
+
   return (
     <article className="rounded-3xl border bg-white p-4 shadow-sm">
       <div className="flex items-start justify-between gap-3">
@@ -810,9 +877,9 @@ function JobCard({ job, user, onDetail, onUpload, onHistory, onComplete, complet
         <button onClick={onDetail} className="rounded-2xl bg-slate-900 px-3 py-3 text-xs font-black text-white">상세보기</button>
         <button onClick={onUpload} className="rounded-2xl border bg-white px-3 py-3 text-xs font-black text-slate-700">사진등록</button>
         <button onClick={onHistory} className="rounded-2xl border bg-white px-3 py-3 text-xs font-black text-slate-700">이력등록</button>
-        <button onClick={onComplete} disabled={completing} className="flex items-center justify-center gap-1 rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-3 text-xs font-black text-emerald-700 disabled:opacity-50">
+        <button onClick={onComplete} disabled={completing || isComplete} className="flex items-center justify-center gap-1 rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-3 text-xs font-black text-emerald-700 disabled:opacity-50">
           {completing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-          {completing ? "저장중" : "완료보고"}
+          {completing ? "저장중" : isComplete ? "완료됨" : "완료보고"}
         </button>
       </div>
 
@@ -830,6 +897,7 @@ function Info({ label, value }) {
 function JobDetailModal({ job, user, onClose, onUpload, onHistory, onAssign, engineerOptions = [], assigning = false, completing = false, actionMessage = "", onComplete }) {
   const [engineer, setInstaller] = useState(job.engineer === "미배정" ? "" : job.engineer || "");
   const engineerNames = engineerOptions.map((item) => item.name);
+  const isComplete = job.status === "시공완료";
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 md:items-center md:p-4">
@@ -878,7 +946,6 @@ function JobDetailModal({ job, user, onClose, onUpload, onHistory, onAssign, eng
                 {assigning ? "저장 중" : "배정"}
               </button>
             </div>
-            {actionMessage ? <p className="mt-3 text-xs font-bold text-blue-800">{actionMessage}</p> : null}
           </div>
         ) : null}
 
@@ -905,11 +972,13 @@ function JobDetailModal({ job, user, onClose, onUpload, onHistory, onAssign, eng
           <button onClick={onUpload} className="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-4 text-sm font-black text-white"><Upload className="h-4 w-4" /> 사진등록</button>
         </DetailBox>
 
+        {actionMessage ? <div className="mt-4 rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-800">{actionMessage}</div> : null}
+
         <div className="sticky bottom-0 -mx-5 mt-5 grid grid-cols-2 gap-2 border-t bg-white/95 px-5 py-4 backdrop-blur">
           <button onClick={onHistory} className="rounded-2xl border px-4 py-3 text-sm font-black">이력등록</button>
-          <button onClick={() => onComplete(job)} disabled={completing} className="flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-black text-white disabled:bg-emerald-300">
+          <button onClick={() => onComplete(job)} disabled={completing || isComplete} className="flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-black text-white disabled:bg-emerald-300">
             {completing ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            {completing ? "저장 중" : "완료보고"}
+            {completing ? "저장 중" : isComplete ? "완료됨" : "완료보고"}
           </button>
         </div>
       </div>
