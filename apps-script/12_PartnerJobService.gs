@@ -362,6 +362,13 @@ function completeJob(body) {
     return access;
   }
 
+  if (!hasRequiredCompletionPhoto_(sheet, rowNumber)) {
+    return {
+      success: false,
+      message: "완료사진을 1장 이상 등록한 뒤 완료보고할 수 있습니다."
+    };
+  }
+
   const lock = LockService.getScriptLock();
   lock.waitLock(5000);
 
@@ -612,6 +619,25 @@ function isLockedValue_(value) {
   const text = String(value || "").trim().toUpperCase();
 
   return text === "Y" || text === "TRUE" || text === "잠금";
+}
+
+
+/**
+ * 완료보고 전 필수 완료사진 등록 여부 확인
+ *
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet 월 시트
+ * @param {number} rowNumber 현장 행 번호
+ * @returns {boolean} 완료사진 등록 여부
+ */
+function hasRequiredCompletionPhoto_(sheet, rowNumber) {
+  const folderUrl = String(sheet.getRange(rowNumber, COL.FOLDER_URL).getValue() || "").trim();
+
+  if (!folderUrl) return false;
+
+  const photoInfo = getPhotoCategoryInfoByFolderUrl_(folderUrl);
+  const completionCount = Number(photoInfo.counts && photoInfo.counts["완료사진"] || 0);
+
+  return completionCount > 0;
 }
 
 

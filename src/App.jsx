@@ -71,6 +71,14 @@ function isJobLocked(job) {
   return job.editLocked === true || job.locked === true || lockValue === "Y" || lockValue === "TRUE";
 }
 
+function completionPhotoCount(job) {
+  return Number(job?.photoCounts?.완료사진 || 0);
+}
+
+function hasCompletionPhoto(job) {
+  return completionPhotoCount(job) > 0;
+}
+
 function buildEngineerOptions(data, partnerName) {
   const installersByPartner = data?.installersByPartner || {};
   const phoneByInstaller = data?.phoneByInstaller || {};
@@ -201,9 +209,10 @@ export default function PartnerInstallerPortal() {
 
   const filteredJobs = useMemo(() => {
     if (activeTab === "unassigned") return visibleJobs.filter((job) => !job.engineer || job.engineer === "미배정" || job.status === "엔지니어배정요청");
-    if (activeTab === "photo") return visibleJobs.filter((job) => job.photo !== "등록완료");
+    if (activeTab === "photo") return visibleJobs.filter((job) => job.status !== "시공완료" && !hasCompletionPhoto(job));
     if (activeTab === "complete") return visibleJobs.filter((job) => job.status === "시공완료");
     if (activeTab === "progress") return visibleJobs.filter((job) => job.status !== "시공완료");
+    if (activeTab === "locked") return visibleJobs.filter((job) => isJobLocked(job));
     return visibleJobs;
   }, [activeTab, visibleJobs]);
 
@@ -211,8 +220,39 @@ export default function PartnerInstallerPortal() {
     total: visibleJobs.length,
     unassigned: visibleJobs.filter((job) => !job.engineer || job.engineer === "미배정" || job.status === "엔지니어배정요청").length,
     photoMissing: visibleJobs.filter((job) => job.photo !== "등록완료").length,
+    completePhotoMissing: visibleJobs.filter((job) => job.status !== "시공완료" && !hasCompletionPhoto(job)).length,
     complete: visibleJobs.filter((job) => job.status === "시공완료").length,
+    locked: visibleJobs.filter((job) => isJobLocked(job)).length,
   }), [visibleJobs]);
+
+  const engineerSummary = useMemo(() => {
+    if (user?.role !== "partner") return [];
+
+    const map = new Map();
+
+    visibleJobs.forEach((job) => {
+      const name = job.engineer || "미배정";
+      const current = map.get(name) || {
+        name,
+        total: 0,
+        progress: 0,
+        complete: 0,
+        locked: 0,
+      };
+
+      current.total += 1;
+      if (job.status === "시공완료") current.complete += 1;
+      else current.progress += 1;
+      if (isJobLocked(job)) current.locked += 1;
+      map.set(name, current);
+    });
+
+    return Array.from(map.values()).sort((a, b) => {
+      if (a.name === "미배정") return -1;
+      if (b.name === "미배정") return 1;
+      return b.total - a.total || a.name.localeCompare(b.name, "ko");
+    });
+  }, [user, visibleJobs]);
 
   const fetchPartnerJobs = async (loginUser, options = {}) => {
     try {
@@ -467,6 +507,11 @@ export default function PartnerInstallerPortal() {
       return;
     }
 
+    if (!hasCompletionPhoto(job)) {
+      setActionMessage("완료사진을 1장 이상 등록한 뒤 완료보고할 수 있습니다.");
+      return;
+    }
+
     const key = jobKey(job);
     const completePatch = { status: "시공완료" };
     setCompletingJobId(key);
@@ -482,6 +527,7 @@ export default function PartnerInstallerPortal() {
         role: user.role,
         partnerName: user.partnerName || job.partner || "",
         engineerName: user.engineerName || job.engineer || "",
+        requireCompletionPhoto: true,
       });
 
       if (!result.success) {
@@ -711,6 +757,7 @@ export default function PartnerInstallerPortal() {
       <div className="mx-auto max-w-5xl space-y-4">
         <PortalHeader user={user} onLogout={handleLogout} />
         <StatGrid user={user} stats={stats} setActiveTab={setActiveTab} />
+        <EngineerSummary user={user} rows={engineerSummary} />
         <TabBar user={user} activeTab={activeTab} setActiveTab={setActiveTab} />
 
         <section className="space-y-3 rounded-3xl bg-white p-4 shadow-sm md:p-5">
@@ -850,17 +897,19 @@ function StatGrid({ user, stats, setActiveTab }) {
   const cards = user.role === "partner" ? [
     ["전체 현장", stats.total, "today", ClipboardList],
     ["엔지니어 미배정", stats.unassigned, "unassigned", Users],
-    ["사진 미등록", stats.photoMissing, "photo", Camera],
+    ["완료사진 필요", stats.completePhotoMissing, "photo", Camera],
     ["완료 현장", stats.complete, "complete", CheckCircle2],
+    ["잠금 현장", stats.locked, "locked", Lock],
   ] : [
     ["내 현장", stats.total, "today", ClipboardList],
     ["진행중", stats.total - stats.complete, "progress", ShieldCheck],
-    ["사진 미등록", stats.photoMissing, "photo", Camera],
+    ["완료사진 필요", stats.completePhotoMissing, "photo", Camera],
     ["완료 현장", stats.complete, "complete", CheckCircle2],
+    ["잠금 현장", stats.locked, "locked", Lock],
   ];
 
   return (
-    <section className="grid grid-cols-2 gap-2 md:grid-cols-4">
+    <section className="grid grid-cols-2 gap-2 md:grid-cols-5">
       {cards.map(([title, value, tab, Icon]) => (
         <button key={title} onClick={() => setActiveTab(tab)} className="rounded-3xl border bg-white p-4 text-left shadow-sm active:scale-[0.99]">
           <div className="flex items-center justify-between gap-2">
@@ -874,14 +923,45 @@ function StatGrid({ user, stats, setActiveTab }) {
   );
 }
 
+function EngineerSummary({ user, rows }) {
+  if (user.role !== "partner" || !rows.length) return null;
+
+  return (
+    <section className="rounded-3xl bg-white p-4 shadow-sm md:p-5">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-black">엔지니어별 현황</h2>
+          <p className="mt-1 text-xs font-medium text-slate-500">배정, 진행, 완료, 잠금 건수를 한 번에 확인합니다.</p>
+        </div>
+        <FileText className="h-5 w-5 text-slate-400" />
+      </div>
+      <div className="mt-4 grid grid-cols-1 gap-2 md:grid-cols-3">
+        {rows.slice(0, 6).map((row) => (
+          <div key={row.name} className="rounded-2xl border bg-slate-50 p-3">
+            <div className="flex items-center justify-between gap-2">
+              <p className="truncate text-sm font-black text-slate-800">{row.name}</p>
+              <Badge className={row.name === "미배정" ? "border-amber-200 bg-amber-50 text-amber-700" : "border-slate-200 bg-white text-slate-600"}>{row.total}건</Badge>
+            </div>
+            <div className="mt-3 grid grid-cols-3 gap-2 text-center text-[11px] font-black">
+              <div className="rounded-xl bg-white p-2 text-blue-700">진행 {row.progress}</div>
+              <div className="rounded-xl bg-white p-2 text-emerald-700">완료 {row.complete}</div>
+              <div className="rounded-xl bg-white p-2 text-rose-700">잠금 {row.locked}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function TabBar({ user, activeTab, setActiveTab }) {
   const tabs = user.role === "partner"
-    ? [["today", "전체"], ["unassigned", "미배정"], ["photo", "사진미등록"], ["progress", "진행중"], ["complete", "완료"]]
-    : [["today", "전체"], ["progress", "진행중"], ["photo", "사진미등록"], ["complete", "완료"]];
+    ? [["today", "전체"], ["unassigned", "미배정"], ["photo", "사진필요"], ["progress", "진행중"], ["complete", "완료"], ["locked", "잠금"]]
+    : [["today", "전체"], ["progress", "진행중"], ["photo", "사진필요"], ["complete", "완료"], ["locked", "잠금"]];
 
   return (
     <nav className="sticky top-0 z-30 rounded-3xl border bg-white/95 p-1 shadow-sm backdrop-blur">
-      <div className={`grid gap-1 ${tabs.length === 5 ? "grid-cols-5" : "grid-cols-4"}`}>
+      <div className={`grid gap-1 ${tabs.length === 6 ? "grid-cols-6" : "grid-cols-5"}`}>
         {tabs.map(([key, label]) => (
           <button key={key} onClick={() => setActiveTab(key)} className={`rounded-2xl px-2 py-3 text-[12px] font-black ${activeTab === key ? "bg-slate-900 text-white" : "text-slate-500"}`}>{label}</button>
         ))}
@@ -893,6 +973,7 @@ function TabBar({ user, activeTab, setActiveTab }) {
 function JobCard({ job, user, onDetail, onUpload, onHistory, onComplete, completing = false }) {
   const isComplete = job.status === "시공완료";
   const locked = isJobLocked(job);
+  const completePhotoReady = hasCompletionPhoto(job);
   const needsEngineer = user.role === "partner" && (!job.engineer || job.engineer === "미배정" || job.status === "엔지니어배정요청");
 
   return (
@@ -919,9 +1000,9 @@ function JobCard({ job, user, onDetail, onUpload, onHistory, onComplete, complet
         <button onClick={onDetail} className="rounded-2xl bg-slate-900 px-3 py-3 text-xs font-black text-white">상세보기</button>
         <button onClick={onUpload} disabled={locked} className="rounded-2xl border bg-white px-3 py-3 text-xs font-black text-slate-700 disabled:bg-slate-100 disabled:text-slate-400">사진등록</button>
         <button onClick={onHistory} disabled={locked} className="rounded-2xl border bg-white px-3 py-3 text-xs font-black text-slate-700 disabled:bg-slate-100 disabled:text-slate-400">이력등록</button>
-        <button onClick={onComplete} disabled={locked || completing || isComplete} className="flex items-center justify-center gap-1 rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-3 text-xs font-black text-emerald-700 disabled:opacity-50">
+        <button onClick={onComplete} disabled={locked || !completePhotoReady || completing || isComplete} className="flex items-center justify-center gap-1 rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-3 text-xs font-black text-emerald-700 disabled:opacity-50">
           {completing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-          {locked ? "잠금" : completing ? "저장중" : isComplete ? "완료됨" : "완료보고"}
+          {locked ? "잠금" : isComplete ? "완료됨" : !completePhotoReady ? "사진필요" : completing ? "저장중" : "완료보고"}
         </button>
       </div>
 
@@ -931,6 +1012,10 @@ function JobCard({ job, user, onDetail, onUpload, onHistory, onComplete, complet
 
       {needsEngineer ? (
         <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs font-bold text-amber-700">엔지니어 배정이 필요한 현장입니다.</div>
+      ) : null}
+
+      {!isComplete && !completePhotoReady && !locked ? (
+        <div className="mt-3 rounded-2xl border border-orange-200 bg-orange-50 p-3 text-xs font-bold text-orange-700">완료보고 전 완료사진 1장 이상 등록이 필요합니다.</div>
       ) : null}
     </article>
   );
@@ -945,6 +1030,7 @@ function JobDetailModal({ job, user, onClose, onUpload, onHistory, onAssign, eng
   const engineerNames = engineerOptions.map((item) => item.name);
   const isComplete = job.status === "시공완료";
   const locked = isJobLocked(job);
+  const completePhotoReady = hasCompletionPhoto(job);
   const canAssignEngineer = user.role === "partner";
 
   return (
@@ -972,9 +1058,11 @@ function JobDetailModal({ job, user, onClose, onUpload, onHistory, onAssign, eng
           </button>
         </div>
 
-        {locked ? (
-          <div className="mt-4 rounded-3xl border border-rose-200 bg-rose-50 p-4 text-sm font-bold leading-relaxed text-rose-700">
-            마스터가 잠금 처리한 현장입니다. 잠금 해제 전까지 사진등록, 이력등록, 완료보고, 엔지니어 배정을 사용할 수 없습니다.
+        {locked || (!isComplete && !completePhotoReady) ? (
+          <div className={`mt-4 rounded-3xl border p-4 text-sm font-bold leading-relaxed ${locked ? "border-rose-200 bg-rose-50 text-rose-700" : "border-orange-200 bg-orange-50 text-orange-700"}`}>
+            {locked
+              ? "마스터가 잠금 처리한 현장입니다. 잠금 해제 전까지 사진등록, 이력등록, 완료보고, 엔지니어 배정을 사용할 수 없습니다."
+              : "완료보고 전 완료사진 1장 이상 등록이 필요합니다."}
           </div>
         ) : null}
 
@@ -1040,9 +1128,9 @@ function JobDetailModal({ job, user, onClose, onUpload, onHistory, onAssign, eng
 
         <div className="sticky bottom-0 -mx-5 mt-5 grid grid-cols-2 gap-2 border-t bg-white/95 px-5 py-4 backdrop-blur">
           <button onClick={onHistory} disabled={locked} className="rounded-2xl border px-4 py-3 text-sm font-black disabled:bg-slate-100 disabled:text-slate-400">이력등록</button>
-          <button onClick={() => onComplete(job)} disabled={locked || completing || isComplete} className="flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-black text-white disabled:bg-emerald-300">
+          <button onClick={() => onComplete(job)} disabled={locked || !completePhotoReady || completing || isComplete} className="flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-black text-white disabled:bg-emerald-300">
             {completing ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            {locked ? "잠금" : completing ? "저장 중" : isComplete ? "완료됨" : "완료보고"}
+            {locked ? "잠금" : isComplete ? "완료됨" : !completePhotoReady ? "사진필요" : completing ? "저장 중" : "완료보고"}
           </button>
         </div>
       </div>
