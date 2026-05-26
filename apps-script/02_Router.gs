@@ -79,6 +79,15 @@ function doPost(e) {
       case "partnerLogin":
         return jsonOutput(partnerLogin(body.id, body.password));
 
+      case "adminLogin":
+        return jsonOutput(adminLogin(body));
+
+      case "adminRegister":
+        return jsonOutput(adminRegister(body));
+
+      case "adminChangePassword":
+        return jsonOutput(adminChangePassword(body));
+
       case "getPartnerJobs":
         return jsonOutput(getPartnerJobs(body));
 
