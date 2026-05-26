@@ -26,13 +26,13 @@ const MOCK_USERS = {
     role: "partner",
     partnerName: "으뜸인테리어",
   },
-  installer: {
+  engineer: {
     id: "woo",
     password: "1234",
     name: "우재경",
-    role: "installer",
+    role: "engineer",
     partnerName: "으뜸인테리어",
-    installerName: "우재경",
+    engineerName: "우재경",
   },
 };
 
@@ -53,8 +53,8 @@ const MOCK_JOBS = [
     endDate: "2026-05-21",
     stoneDate: "2026-05-21",
     partner: "으뜸인테리어",
-    installer: "우재경",
-    installerPhone: "010-4118-3472",
+    engineer: "우재경",
+    engineerPhone: "010-4118-3472",
     photo: "미등록",
     photoUrl: "#",
     siteMemo: `1층 비번 없음, 세대비번 1234*
@@ -73,13 +73,13 @@ const MOCK_JOBS = [
     orderStatus: "발주완료",
     living: "거주",
     assembly: "일반출고",
-    status: "기사배정완료",
+    status: "엔지니어배정완료",
     installDate: "2026-07-31",
     endDate: "2026-07-31",
     stoneDate: "",
     partner: "으뜸인테리어",
-    installer: "우재경",
-    installerPhone: "010-4118-3472",
+    engineer: "우재경",
+    engineerPhone: "010-4118-3472",
     photo: "등록완료",
     photoUrl: "#",
     siteMemo: "엘리베이터 사용 가능",
@@ -97,31 +97,31 @@ const MOCK_JOBS = [
     orderStatus: "계약중",
     living: "비거주",
     assembly: "조립출고",
-    status: "기사배정요청",
+    status: "엔지니어배정요청",
     installDate: "2026-07-02",
     endDate: "2026-07-02",
     stoneDate: "",
     partner: "으뜸인테리어",
-    installer: "미배정",
-    installerPhone: "",
+    engineer: "미배정",
+    engineerPhone: "",
     photo: "미등록",
     photoUrl: "",
-    siteMemo: "기사 배정 필요",
+    siteMemo: "엔지니어 배정 필요",
     history: "",
     photoCounts: { 계약도면: 0, 시공전: 0, 완료사진: 0, 기타: 0 },
   },
 ];
 
 const STATUS_CLASS = {
-  기사배정요청: "border-amber-200 bg-amber-50 text-amber-700",
-  기사배정완료: "border-blue-200 bg-blue-50 text-blue-700",
+  엔지니어배정요청: "border-amber-200 bg-amber-50 text-amber-700",
+  엔지니어배정완료: "border-blue-200 bg-blue-50 text-blue-700",
   시공계획확정: "border-lime-200 bg-lime-50 text-lime-700",
   시공중: "border-purple-200 bg-purple-50 text-purple-700",
   시공완료: "border-emerald-700 bg-emerald-600 text-white",
 };
 
 const PHOTO_CATEGORY_OPTIONS = ["계약도면", "시공전", "완료사진", "기타"];
-const INSTALLERS = ["우재경", "김기사", "박기사", "최기사"];
+const ENGINEERS = ["우재경", "김기사", "박기사", "최기사"];
 
 function onlyDigits(value) {
   return String(value || "").replace(/[^0-9]/g, "");
@@ -170,11 +170,11 @@ export default function PartnerInstallerPortal() {
   const visibleJobs = useMemo(() => {
     if (!user) return [];
     if (user.role === "partner") return jobs.filter((job) => job.partner === user.partnerName);
-    return jobs.filter((job) => job.installer === user.installerName);
+    return jobs.filter((job) => job.engineer === user.engineerName);
   }, [jobs, user]);
 
   const filteredJobs = useMemo(() => {
-    if (activeTab === "unassigned") return visibleJobs.filter((job) => !job.installer || job.installer === "미배정" || job.status === "기사배정요청");
+    if (activeTab === "unassigned") return visibleJobs.filter((job) => !job.engineer || job.engineer === "미배정" || job.status === "엔지니어배정요청");
     if (activeTab === "photo") return visibleJobs.filter((job) => job.photo !== "등록완료");
     if (activeTab === "complete") return visibleJobs.filter((job) => job.status === "시공완료");
     if (activeTab === "progress") return visibleJobs.filter((job) => job.status !== "시공완료");
@@ -183,7 +183,7 @@ export default function PartnerInstallerPortal() {
 
   const stats = useMemo(() => ({
     total: visibleJobs.length,
-    unassigned: visibleJobs.filter((job) => !job.installer || job.installer === "미배정" || job.status === "기사배정요청").length,
+    unassigned: visibleJobs.filter((job) => !job.engineer || job.engineer === "미배정" || job.status === "엔지니어배정요청").length,
     photoMissing: visibleJobs.filter((job) => job.photo !== "등록완료").length,
     complete: visibleJobs.filter((job) => job.status === "시공완료").length,
   }), [visibleJobs]);
@@ -216,12 +216,12 @@ export default function PartnerInstallerPortal() {
     setHistoryJob(null);
   };
 
-  const assignInstaller = (jobId, installer) => {
+  const assignInstaller = (jobId, engineer) => {
     setJobs((prev) => prev.map((job) => job.id === jobId ? {
       ...job,
-      installer,
-      installerPhone: "010-4118-3472",
-      status: "기사배정완료",
+      engineer,
+      engineerPhone: "010-4118-3472",
+      status: "엔지니어배정완료",
     } : job));
   };
 
@@ -230,28 +230,18 @@ export default function PartnerInstallerPortal() {
   };
 
   const addHistory = (jobId, text) => {
-  if (!text.trim()) return;
-
-  setJobs((prev) =>
-    prev.map((job) =>
-      job.id === jobId
-        ? {
-            ...job,
-            history: [
-              job.history,
-              `${new Date().toLocaleDateString("ko-KR")} ${
-                user?.name || "사용자"
-              }: ${text.trim()}`,
-            ]
-              .filter(Boolean)
-              .join("\n"),
-          }
-        : job
-    )
-  );
-
-  setHistoryJob(null);
-};
+    if (!text.trim()) return;
+    setJobs((prev) => prev.map((job) => job.id === jobId ? {
+      ...job,
+      history: [
+        job.history,
+        `${new Date().toLocaleDateString("ko-KR")} ${user?.name || "사용자"}: ${text.trim()}`,
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    } : job));
+    setHistoryJob(null);
+  };
 
   const markPhotoUploaded = (jobId, category) => {
     setJobs((prev) => prev.map((job) => job.id === jobId ? {
@@ -342,7 +332,7 @@ function LoginSelect({ onSelect }) {
         <div className="mb-6 text-center">
           <p className="text-sm font-bold text-sky-300">DAELIM BATH & KITCHEN</p>
           <h1 className="mt-2 text-3xl font-black tracking-tight">시공사 포털</h1>
-          <p className="mt-3 text-sm leading-relaxed text-slate-300">협력사와 시공기사가 현장정보 확인, 사진등록, 이력등록을 처리하는 전용 앱입니다.</p>
+          <p className="mt-3 text-sm leading-relaxed text-slate-300">협력사와 시공엔지니어가 현장정보 확인, 사진등록, 이력등록을 처리하는 전용 앱입니다.</p>
         </div>
 
         <div className="space-y-3 rounded-[2rem] border border-white/10 bg-white/10 p-4 shadow-2xl backdrop-blur">
@@ -350,14 +340,14 @@ function LoginSelect({ onSelect }) {
             <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-900 text-white"><Building2 className="h-6 w-6" /></div>
             <div>
               <p className="text-lg font-black">협력사 로그인</p>
-              <p className="mt-1 text-xs font-bold text-slate-500">현장 확인 · 기사 배정 · 사진/이력 보완</p>
+              <p className="mt-1 text-xs font-bold text-slate-500">현장 확인 · 엔지니어 배정 · 사진/이력 보완</p>
             </div>
           </button>
 
-          <button onClick={() => onSelect("installer")} className="flex w-full items-center gap-4 rounded-3xl bg-white p-5 text-left text-slate-900 shadow-lg transition active:scale-[0.99]">
+          <button onClick={() => onSelect("engineer")} className="flex w-full items-center gap-4 rounded-3xl bg-white p-5 text-left text-slate-900 shadow-lg transition active:scale-[0.99]">
             <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-600 text-white"><UserRound className="h-6 w-6" /></div>
             <div>
-              <p className="text-lg font-black">시공기사 로그인</p>
+              <p className="text-lg font-black">시공엔지니어 로그인</p>
               <p className="mt-1 text-xs font-bold text-slate-500">내 현장 확인 · 사진등록 · 완료보고</p>
             </div>
           </button>
@@ -382,7 +372,7 @@ function LoginForm({ type, id, password, setId, setPassword, message, onBack, on
             {isPartner ? <Building2 className="h-6 w-6" /> : <UserRound className="h-6 w-6" />}
           </div>
           <div>
-            <h1 className="text-2xl font-black">{isPartner ? "협력사 로그인" : "시공기사 로그인"}</h1>
+            <h1 className="text-2xl font-black">{isPartner ? "협력사 로그인" : "시공엔지니어 로그인"}</h1>
             <p className="mt-1 text-xs font-bold text-slate-500">테스트 계정이 자동 입력되어 있습니다.</p>
           </div>
         </div>
@@ -414,9 +404,9 @@ function PortalHeader({ user, onLogout }) {
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-xs font-black text-slate-400">대림바스&키친</p>
-          <h1 className="mt-1 text-2xl font-black tracking-tight">{user.role === "partner" ? "협력사 포털" : "시공기사 포털"}</h1>
+          <h1 className="mt-1 text-2xl font-black tracking-tight">{user.role === "partner" ? "협력사 포털" : "시공엔지니어 포털"}</h1>
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            <Badge className={user.role === "partner" ? "border-slate-300 bg-slate-900 text-white" : "border-blue-200 bg-blue-50 text-blue-700"}>{user.role === "partner" ? "협력사" : "시공기사"}</Badge>
+            <Badge className={user.role === "partner" ? "border-slate-300 bg-slate-900 text-white" : "border-blue-200 bg-blue-50 text-blue-700"}>{user.role === "partner" ? "협력사" : "시공엔지니어"}</Badge>
             <span className="text-sm font-bold text-slate-600">{user.name}</span>
           </div>
         </div>
@@ -431,7 +421,7 @@ function PortalHeader({ user, onLogout }) {
 function StatGrid({ user, stats, setActiveTab }) {
   const cards = user.role === "partner" ? [
     ["전체 현장", stats.total, "today", ClipboardList],
-    ["기사 미배정", stats.unassigned, "unassigned", Users],
+    ["엔지니어 미배정", stats.unassigned, "unassigned", Users],
     ["사진 미등록", stats.photoMissing, "photo", Camera],
     ["완료 현장", stats.complete, "complete", CheckCircle2],
   ] : [
@@ -487,7 +477,7 @@ function JobCard({ job, user, onDetail, onUpload, onHistory, onComplete }) {
         <Info label="시공일" value={installPeriod(job)} />
         <Info label="아이템" value={job.item} />
         <Info label="담당자" value={job.manager} />
-        <Info label="기사" value={job.installer || "미배정"} />
+        <Info label="기사" value={job.engineer || "미배정"} />
       </div>
 
       <div className="mt-4 grid grid-cols-2 gap-2 md:grid-cols-4">
@@ -497,8 +487,8 @@ function JobCard({ job, user, onDetail, onUpload, onHistory, onComplete }) {
         <button onClick={() => onComplete(job.id)} className="rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-3 text-xs font-black text-emerald-700">완료보고</button>
       </div>
 
-      {user.role === "partner" && (!job.installer || job.installer === "미배정" || job.status === "기사배정요청") ? (
-        <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs font-bold text-amber-700">기사 배정이 필요한 현장입니다.</div>
+      {user.role === "partner" && (!job.engineer || job.engineer === "미배정" || job.status === "엔지니어배정요청") ? (
+        <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs font-bold text-amber-700">엔지니어 배정이 필요한 현장입니다.</div>
       ) : null}
     </article>
   );
@@ -509,7 +499,7 @@ function Info({ label, value }) {
 }
 
 function JobDetailModal({ job, user, onClose, onUpload, onHistory, onAssign, onComplete }) {
-  const [installer, setInstaller] = useState(job.installer === "미배정" ? "" : job.installer || "");
+  const [engineer, setInstaller] = useState(job.engineer === "미배정" ? "" : job.engineer || "");
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 md:items-center md:p-4">
@@ -540,20 +530,20 @@ function JobDetailModal({ job, user, onClose, onUpload, onHistory, onAssign, onC
             <DetailRow label="시공기간" value={installPeriod(job)} />
             <DetailRow label="대리석" value={shortDate(job.stoneDate)} />
             <DetailRow label="협력사" value={job.partner} />
-            <DetailRow label="시공기사" value={job.installer || "미배정"} />
-            <DetailRow label="기사 연락처" value={<PhoneLink value={job.installerPhone} />} />
+            <DetailRow label="시공엔지니어" value={job.engineer || "미배정"} />
+            <DetailRow label="엔지니어 연락처" value={<PhoneLink value={job.engineerPhone} />} />
           </DetailBox>
         </div>
 
         {user.role === "partner" ? (
           <div className="mt-4 rounded-3xl border border-blue-100 bg-blue-50 p-4">
-            <h3 className="font-black text-blue-900">기사 배정</h3>
+            <h3 className="font-black text-blue-900">엔지니어 배정</h3>
             <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
-              <select value={installer} onChange={(e) => setInstaller(e.target.value)} className="rounded-2xl border bg-white px-3 py-3 text-sm font-bold">
-                <option value="">기사 선택</option>
-                {INSTALLERS.map((name) => <option key={name} value={name}>{name}</option>)}
+              <select value={engineer} onChange={(e) => setInstaller(e.target.value)} className="rounded-2xl border bg-white px-3 py-3 text-sm font-bold">
+                <option value="">엔지니어 선택</option>
+                {ENGINEERS.map((name) => <option key={name} value={name}>{name}</option>)}
               </select>
-              <button onClick={() => installer && onAssign(job.id, installer)} className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-black text-white">배정</button>
+              <button onClick={() => engineer && onAssign(job.id, engineer)} className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-black text-white">배정</button>
             </div>
           </div>
         ) : null}
