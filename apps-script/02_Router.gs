@@ -85,6 +85,12 @@ function doPost(e) {
       case "assignEngineer":
         return jsonOutput(assignEngineer(body));
 
+      case "addHistory":
+        return jsonOutput(addHistory(body));
+
+      case "completeJob":
+        return jsonOutput(completeJob(body));
+
       case "saveOrder":
         return jsonOutput(saveOrder(body));
 

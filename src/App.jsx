@@ -156,7 +156,8 @@ function installPeriod(job) {
 }
 
 function jobKey(job) {
-  return job?.rowNumber || job?.id || job?.jobId || "";
+  if (!job) return "";
+  return `${job.month || job.sheet || ""}-${job.rowNumber || job.id || job.jobId || ""}`;
 }
 
 function Badge({ children, className = "" }) {
@@ -180,6 +181,9 @@ export default function PartnerInstallerPortal() {
   const [uploadJob, setUploadJob] = useState(null);
   const [historyJob, setHistoryJob] = useState(null);
   const [assigningJobId, setAssigningJobId] = useState("");
+  const [completingJobId, setCompletingJobId] = useState("");
+  const [historySavingJobId, setHistorySavingJobId] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
   const [actionMessage, setActionMessage] = useState("");
 
   const visibleJobs = useMemo(() => {
@@ -303,6 +307,22 @@ export default function PartnerInstallerPortal() {
     setHistoryJob(null);
   };
 
+  const refreshJobs = async (message = "현장 목록을 새로고침했습니다.") => {
+    if (!user) return;
+    setRefreshing(true);
+    setActionMessage("");
+
+    try {
+      const rows = await fetchPartnerJobs(user);
+      setJobs(rows);
+      setDetailJob((current) => current ? rows.find((row) => jobKey(row) === jobKey(current)) || current : current);
+      setHistoryJob((current) => current ? rows.find((row) => jobKey(row) === jobKey(current)) || current : current);
+      setActionMessage(message);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   const assignInstaller = async (job, engineer) => {
     if (!job || !engineer || !user) return;
 
@@ -357,22 +377,99 @@ export default function PartnerInstallerPortal() {
     }
   };
 
-  const completeJob = (jobId) => {
-    setJobs((prev) => prev.map((job) => job.id === jobId ? { ...job, status: "시공완료" } : job));
+  const completeJob = async (job) => {
+    if (!job || !user) return;
+
+    const key = jobKey(job);
+    setCompletingJobId(key);
+    setActionMessage("");
+
+    try {
+      const response = await fetch(WEBAPP_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "text/plain;charset=utf-8",
+        },
+        body: JSON.stringify({
+          action: "completeJob",
+          rowNumber: job.rowNumber || "",
+          jobId: job.id || job.jobId || "",
+          id: job.id || "",
+          month: job.month || job.sheet || "",
+          role: user.role,
+          partnerName: user.partnerName || job.partner || "",
+          engineerName: user.engineerName || job.engineer || "",
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!result.success) {
+        setActionMessage(result.message || "완료보고 저장에 실패했습니다.");
+        return;
+      }
+
+      const rows = await fetchPartnerJobs(user);
+      setJobs(rows);
+      setDetailJob((current) => {
+        if (!current) return current;
+        return rows.find((row) => jobKey(row) === key) || { ...current, status: "시공완료" };
+      });
+      setActionMessage("완료보고가 저장되었습니다.");
+    } catch (err) {
+      console.error(err);
+      setActionMessage("완료보고 API 연결 실패");
+    } finally {
+      setCompletingJobId("");
+    }
   };
 
-  const addHistory = (jobId, text) => {
+  const addHistory = async (job, text) => {
     if (!text.trim()) return;
-    setJobs((prev) => prev.map((job) => job.id === jobId ? {
-      ...job,
-      history: [
-        job.history,
-        `${new Date().toLocaleDateString("ko-KR")} ${user?.name || "사용자"}: ${text.trim()}`,
-      ]
-        .filter(Boolean)
-        .join("\n"),
-    } : job));
-    setHistoryJob(null);
+    if (!job || !user) return;
+
+    const key = jobKey(job);
+    setHistorySavingJobId(key);
+    setActionMessage("");
+
+    try {
+      const response = await fetch(WEBAPP_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "text/plain;charset=utf-8",
+        },
+        body: JSON.stringify({
+          action: "addHistory",
+          rowNumber: job.rowNumber || "",
+          jobId: job.id || job.jobId || "",
+          id: job.id || "",
+          month: job.month || job.sheet || "",
+          role: user.role,
+          partnerName: user.partnerName || job.partner || "",
+          engineerName: user.engineerName || job.engineer || "",
+          actor: user.name || user.engineerName || user.partnerName || "사용자",
+          text: text.trim(),
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!result.success) {
+        setActionMessage(result.message || "이력등록 저장에 실패했습니다.");
+        return;
+      }
+
+      const rows = await fetchPartnerJobs(user);
+      setJobs(rows);
+      setDetailJob((current) => current ? rows.find((row) => jobKey(row) === jobKey(current)) || current : current);
+      setHistoryJob(null);
+      setActionMessage("이력등록이 저장되었습니다.");
+    } catch (err) {
+      console.error(err);
+      setActionMessage("이력등록 API 연결 실패");
+    } finally {
+      setHistorySavingJobId("");
+    }
   };
 
   const markPhotoUploaded = (jobId, category) => {
@@ -420,12 +517,13 @@ export default function PartnerInstallerPortal() {
               <h2 className="text-lg font-black">{user.role === "partner" ? "협력사 현장 목록" : "내 현장 목록"}</h2>
               <p className="mt-1 text-xs font-medium text-slate-500">총 {filteredJobs.length}건 표시 중</p>
             </div>
-            <button className="rounded-2xl border bg-white px-3 py-2 text-xs font-black text-slate-600">새로고침</button>
+            <button onClick={() => refreshJobs()} disabled={refreshing} className="rounded-2xl border bg-white px-3 py-2 text-xs font-black text-slate-600 disabled:opacity-50">{refreshing ? "조회중" : "새로고침"}</button>
           </div>
+          {actionMessage ? <div className="rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-xs font-bold text-blue-800">{actionMessage}</div> : null}
 
           {filteredJobs.length ? filteredJobs.map((job) => (
             <JobCard
-              key={job.id}
+              key={jobKey(job)}
               job={job}
               user={user}
               onDetail={() => {
@@ -434,7 +532,8 @@ export default function PartnerInstallerPortal() {
               }}
               onUpload={() => setUploadJob(job)}
               onHistory={() => setHistoryJob(job)}
-              onComplete={() => completeJob(job.id)}
+              onComplete={() => completeJob(job)}
+              completing={completingJobId === jobKey(job)}
             />
           )) : (
             <div className="rounded-3xl border border-dashed p-8 text-center text-sm font-bold text-slate-400">표시할 현장이 없습니다.</div>
@@ -451,13 +550,14 @@ export default function PartnerInstallerPortal() {
           onHistory={() => { setHistoryJob(detailJob); setDetailJob(null); }}
           onAssign={assignInstaller}
           assigning={assigningJobId === jobKey(detailJob)}
+          completing={completingJobId === jobKey(detailJob)}
           actionMessage={actionMessage}
           onComplete={completeJob}
         />
       ) : null}
 
       {uploadJob ? <UploadModal job={uploadJob} onClose={() => setUploadJob(null)} onSubmit={markPhotoUploaded} /> : null}
-      {historyJob ? <HistoryModal job={historyJob} onClose={() => setHistoryJob(null)} onSubmit={addHistory} /> : null}
+      {historyJob ? <HistoryModal job={historyJob} onClose={() => setHistoryJob(null)} onSubmit={addHistory} saving={historySavingJobId === jobKey(historyJob)} message={actionMessage} /> : null}
     </div>
   );
 }
@@ -599,7 +699,7 @@ function TabBar({ user, activeTab, setActiveTab }) {
   );
 }
 
-function JobCard({ job, user, onDetail, onUpload, onHistory, onComplete }) {
+function JobCard({ job, user, onDetail, onUpload, onHistory, onComplete, completing = false }) {
   return (
     <article className="rounded-3xl border bg-white p-4 shadow-sm">
       <div className="flex items-start justify-between gap-3">
@@ -621,7 +721,10 @@ function JobCard({ job, user, onDetail, onUpload, onHistory, onComplete }) {
         <button onClick={onDetail} className="rounded-2xl bg-slate-900 px-3 py-3 text-xs font-black text-white">상세보기</button>
         <button onClick={onUpload} className="rounded-2xl border bg-white px-3 py-3 text-xs font-black text-slate-700">사진등록</button>
         <button onClick={onHistory} className="rounded-2xl border bg-white px-3 py-3 text-xs font-black text-slate-700">이력등록</button>
-        <button onClick={() => onComplete(job.id)} className="rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-3 text-xs font-black text-emerald-700">완료보고</button>
+        <button onClick={onComplete} disabled={completing} className="flex items-center justify-center gap-1 rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-3 text-xs font-black text-emerald-700 disabled:opacity-50">
+          {completing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+          {completing ? "저장중" : "완료보고"}
+        </button>
       </div>
 
       {user.role === "partner" && (!job.engineer || job.engineer === "미배정" || job.status === "엔지니어배정요청") ? (
@@ -635,7 +738,7 @@ function Info({ label, value }) {
   return <div><p className="text-[11px] font-black text-slate-400">{label}</p><p className="mt-1 font-black text-slate-700">{value || "-"}</p></div>;
 }
 
-function JobDetailModal({ job, user, onClose, onUpload, onHistory, onAssign, assigning = false, actionMessage = "", onComplete }) {
+function JobDetailModal({ job, user, onClose, onUpload, onHistory, onAssign, assigning = false, completing = false, actionMessage = "", onComplete }) {
   const [engineer, setInstaller] = useState(job.engineer === "미배정" ? "" : job.engineer || "");
 
   return (
@@ -703,7 +806,10 @@ function JobDetailModal({ job, user, onClose, onUpload, onHistory, onAssign, ass
 
         <div className="sticky bottom-0 -mx-5 mt-5 grid grid-cols-2 gap-2 border-t bg-white/95 px-5 py-4 backdrop-blur">
           <button onClick={onHistory} className="rounded-2xl border px-4 py-3 text-sm font-black">이력등록</button>
-          <button onClick={() => onComplete(job.id)} className="rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-black text-white">완료보고</button>
+          <button onClick={() => onComplete(job)} disabled={completing} className="flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-black text-white disabled:bg-emerald-300">
+            {completing ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            {completing ? "저장 중" : "완료보고"}
+          </button>
         </div>
       </div>
     </div>
@@ -778,7 +884,7 @@ function UploadModal({ job, onClose, onSubmit }) {
   );
 }
 
-function HistoryModal({ job, onClose, onSubmit }) {
+function HistoryModal({ job, onClose, onSubmit, saving = false, message = "" }) {
   const [text, setText] = useState("");
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
@@ -795,9 +901,13 @@ function HistoryModal({ job, onClose, onSubmit }) {
           <textarea value={text} onChange={(e) => setText(e.target.value)} className="min-h-36 w-full rounded-2xl border px-4 py-3 text-sm" placeholder="예: 자재누락, 고객 요청, 재방문 필요, 완료보고 특이사항 등" />
         </div>
         <div className="mt-5 grid grid-cols-2 gap-2">
-          <button onClick={onClose} className="rounded-2xl border px-4 py-3 text-sm font-black">취소</button>
-          <button onClick={() => onSubmit(job.id, text)} className="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-black text-white">등록</button>
+          <button onClick={onClose} disabled={saving} className="rounded-2xl border px-4 py-3 text-sm font-black disabled:opacity-50">취소</button>
+          <button onClick={() => onSubmit(job, text)} disabled={saving || !text.trim()} className="flex items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-black text-white disabled:bg-slate-300">
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            {saving ? "저장 중" : "등록"}
+          </button>
         </div>
+        {message ? <div className="mt-4 rounded-2xl border border-blue-100 bg-blue-50 p-4 text-sm font-bold text-blue-800">{message}</div> : null}
       </div>
     </div>
   );

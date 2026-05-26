@@ -216,6 +216,201 @@ function assignEngineer(body) {
 
 
 /**
+ * 협력사 포털 중요 이력 추가 저장
+ *
+ * 저장 대상:
+ * - Y열: 중요 이력
+ *
+ * @param {Object} body 요청 데이터
+ * @returns {Object} 저장 결과
+ */
+function addHistory(body) {
+  const month = String(body.month || "").trim();
+  const rowNumber = Number(body.rowNumber || 0);
+  const role = String(body.role || "").trim();
+  const partnerName = String(body.partnerName || "").trim();
+  const engineerName = String(body.engineerName || "").trim();
+  const actor = String(body.actor || "사용자").trim();
+  const text = String(body.text || "").trim();
+
+  if (!month) {
+    return {
+      success: false,
+      message: "월 시트 정보가 없습니다."
+    };
+  }
+
+  if (!rowNumber || rowNumber < DATA_START_ROW) {
+    return {
+      success: false,
+      message: "현장 행 번호가 올바르지 않습니다."
+    };
+  }
+
+  if (!text) {
+    return {
+      success: false,
+      message: "이력 내용을 입력해 주세요."
+    };
+  }
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(month);
+
+  if (!sheet) {
+    return {
+      success: false,
+      message: month + " 시트를 찾을 수 없습니다."
+    };
+  }
+
+  const access = checkPartnerJobAccess_(sheet, rowNumber, role, partnerName, engineerName);
+
+  if (!access.success) {
+    return access;
+  }
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(5000);
+
+  try {
+    const historyCell = sheet.getRange(rowNumber, COL.HISTORY);
+    const currentHistory = String(historyCell.getValue() || "").trim();
+    const stamp = Utilities.formatDate(new Date(), TIMEZONE, "yyyy-MM-dd HH:mm");
+    const nextLine = stamp + " " + actor + ": " + text;
+    const nextHistory = currentHistory ? currentHistory + "\n" + nextLine : nextLine;
+
+    historyCell.setValue(nextHistory);
+
+    return {
+      success: true,
+      message: "이력등록이 저장되었습니다.",
+      month: month,
+      rowNumber: rowNumber,
+      history: nextHistory
+    };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+
+/**
+ * 협력사 포털 완료보고 저장
+ *
+ * 저장 대상:
+ * - 상태: 시공완료
+ *
+ * @param {Object} body 요청 데이터
+ * @returns {Object} 저장 결과
+ */
+function completeJob(body) {
+  const month = String(body.month || "").trim();
+  const rowNumber = Number(body.rowNumber || 0);
+  const role = String(body.role || "").trim();
+  const partnerName = String(body.partnerName || "").trim();
+  const engineerName = String(body.engineerName || "").trim();
+
+  if (!month) {
+    return {
+      success: false,
+      message: "월 시트 정보가 없습니다."
+    };
+  }
+
+  if (!rowNumber || rowNumber < DATA_START_ROW) {
+    return {
+      success: false,
+      message: "현장 행 번호가 올바르지 않습니다."
+    };
+  }
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(month);
+
+  if (!sheet) {
+    return {
+      success: false,
+      message: month + " 시트를 찾을 수 없습니다."
+    };
+  }
+
+  const access = checkPartnerJobAccess_(sheet, rowNumber, role, partnerName, engineerName);
+
+  if (!access.success) {
+    return access;
+  }
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(5000);
+
+  try {
+    sheet.getRange(rowNumber, COL.STATUS).setValue("시공완료");
+
+    return {
+      success: true,
+      message: "완료보고가 저장되었습니다.",
+      month: month,
+      rowNumber: rowNumber,
+      status: "시공완료"
+    };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+
+/**
+ * 협력사 포털 현장 접근 권한 확인
+ *
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet 월 시트
+ * @param {number} rowNumber 현장 행 번호
+ * @param {string} role 권한
+ * @param {string} partnerName 협력사명
+ * @param {string} engineerName 엔지니어명
+ * @returns {Object} 확인 결과
+ */
+function checkPartnerJobAccess_(sheet, rowNumber, role, partnerName, engineerName) {
+  const customer = String(sheet.getRange(rowNumber, COL.CUSTOMER).getValue() || "").trim();
+  const status = String(sheet.getRange(rowNumber, COL.STATUS).getValue() || "").trim();
+  const currentPartner = String(sheet.getRange(rowNumber, COL.PARTNER).getValue() || "").trim();
+  const currentEngineer = String(sheet.getRange(rowNumber, COL.INSTALLER).getValue() || "").trim();
+
+  if (!customer) {
+    return {
+      success: false,
+      message: "현장 정보를 찾을 수 없습니다."
+    };
+  }
+
+  if (status === STATUS.DELETED) {
+    return {
+      success: false,
+      message: "삭제된 현장은 처리할 수 없습니다."
+    };
+  }
+
+  if (role === "partner" && partnerName && currentPartner !== partnerName) {
+    return {
+      success: false,
+      message: "해당 협력사 현장이 아닙니다."
+    };
+  }
+
+  if (role === "engineer" && engineerName && currentEngineer !== engineerName) {
+    return {
+      success: false,
+      message: "배정된 시공엔지니어 현장이 아닙니다."
+    };
+  }
+
+  return {
+    success: true
+  };
+}
+
+
+/**
  * 협력사데이터 시트에서 엔지니어 연락처 조회
  *
  * @param {string} partnerName 협력사명
