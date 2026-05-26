@@ -58,7 +58,7 @@ function doGet(e) {
       default:
         return jsonOutput({
           success: false,
-          message: "지원하지 않는 GET action"
+          message: "지원하지 않는 GET action: " + action
         });
     }
   } catch (err) {
@@ -124,7 +124,7 @@ function doPost(e) {
       default:
         return jsonOutput({
           success: false,
-          message: "지원하지 않는 POST action"
+          message: "지원하지 않는 POST action: " + action
         });
     }
   } catch (err) {

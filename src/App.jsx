@@ -72,6 +72,24 @@ function buildEngineerOptions(data, partnerName) {
     .filter((engineer) => engineer.name);
 }
 
+async function apiPost(payload) {
+  const response = await fetch(WEBAPP_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "text/plain;charset=utf-8",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const text = await response.text();
+
+  try {
+    return JSON.parse(text);
+  } catch (err) {
+    throw new Error(`API 응답 형식 오류: ${text.slice(0, 160)}`);
+  }
+}
+
 function Badge({ children, className = "" }) {
   return <span className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-black leading-none ${className}`}>{children}</span>;
 }
@@ -130,20 +148,12 @@ export default function PartnerInstallerPortal() {
 
   const fetchPartnerJobs = async (loginUser) => {
     try {
-      const response = await fetch(WEBAPP_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "text/plain;charset=utf-8",
-        },
-        body: JSON.stringify({
-          action: "getPartnerJobs",
-          role: loginUser.role,
-          partnerName: loginUser.partnerName,
-          engineerName: loginUser.engineerName || "",
-        }),
+      const result = await apiPost({
+        action: "getPartnerJobs",
+        role: loginUser.role,
+        partnerName: loginUser.partnerName,
+        engineerName: loginUser.engineerName || "",
       });
-
-      const result = await response.json();
 
       if (!result.success) {
         setLoginMessage(result.message || "현장 목록 조회 실패");
@@ -153,7 +163,7 @@ export default function PartnerInstallerPortal() {
       return result.rows || [];
     } catch (err) {
       console.error(err);
-      setLoginMessage("현장 목록 API 연결 실패");
+      setLoginMessage(err.message || "현장 목록 API 연결 실패");
       return [];
     }
   };
@@ -186,20 +196,12 @@ export default function PartnerInstallerPortal() {
     setLoginMessage("로그인 확인 중입니다.");
 
     try {
-      const response = await fetch(WEBAPP_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "text/plain;charset=utf-8",
-        },
-        body: JSON.stringify({
-          action: "partnerLogin",
-          role: loginType,
-          id: trimmedId,
-          password: trimmedPw,
-        }),
+      const result = await apiPost({
+        action: "partnerLogin",
+        role: loginType,
+        id: trimmedId,
+        password: trimmedPw,
       });
-
-      const result = await response.json();
 
       if (!result.success) {
         setLoginMessage(result.message || "아이디 또는 비밀번호를 확인해 주세요.");
@@ -228,7 +230,7 @@ export default function PartnerInstallerPortal() {
       setLoginMessage("");
     } catch (err) {
       console.error(err);
-      setLoginMessage("로그인 API 연결 실패");
+      setLoginMessage(err.message || "로그인 API 연결 실패");
     }
   };
 
@@ -267,24 +269,16 @@ export default function PartnerInstallerPortal() {
     setActionMessage("");
 
     try {
-      const response = await fetch(WEBAPP_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "text/plain;charset=utf-8",
-        },
-        body: JSON.stringify({
-          action: "assignEngineer",
-          rowNumber: job.rowNumber || "",
-          jobId: job.id || job.jobId || "",
-          id: job.id || "",
-          month: job.month || job.sheet || "",
-          partnerName: user.partnerName || job.partner || "",
-          engineerName: engineer,
-          engineerPhone: selectedEngineer?.phone || job.engineerPhone || "",
-        }),
+      const result = await apiPost({
+        action: "assignEngineer",
+        rowNumber: job.rowNumber || "",
+        jobId: job.id || job.jobId || "",
+        id: job.id || "",
+        month: job.month || job.sheet || "",
+        partnerName: user.partnerName || job.partner || "",
+        engineerName: engineer,
+        engineerPhone: selectedEngineer?.phone || job.engineerPhone || "",
       });
-
-      const result = await response.json();
 
       if (!result.success) {
         setActionMessage(result.message || "엔지니어 배정 저장에 실패했습니다.");
@@ -305,7 +299,7 @@ export default function PartnerInstallerPortal() {
       setActionMessage("엔지니어 배정이 저장되었습니다.");
     } catch (err) {
       console.error(err);
-      setActionMessage("엔지니어 배정 API 연결 실패");
+      setActionMessage(err.message || "엔지니어 배정 API 연결 실패");
     } finally {
       setAssigningJobId("");
     }
@@ -319,24 +313,16 @@ export default function PartnerInstallerPortal() {
     setActionMessage("");
 
     try {
-      const response = await fetch(WEBAPP_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "text/plain;charset=utf-8",
-        },
-        body: JSON.stringify({
-          action: "completeJob",
-          rowNumber: job.rowNumber || "",
-          jobId: job.id || job.jobId || "",
-          id: job.id || "",
-          month: job.month || job.sheet || "",
-          role: user.role,
-          partnerName: user.partnerName || job.partner || "",
-          engineerName: user.engineerName || job.engineer || "",
-        }),
+      const result = await apiPost({
+        action: "completeJob",
+        rowNumber: job.rowNumber || "",
+        jobId: job.id || job.jobId || "",
+        id: job.id || "",
+        month: job.month || job.sheet || "",
+        role: user.role,
+        partnerName: user.partnerName || job.partner || "",
+        engineerName: user.engineerName || job.engineer || "",
       });
-
-      const result = await response.json();
 
       if (!result.success) {
         setActionMessage(result.message || "완료보고 저장에 실패했습니다.");
@@ -352,7 +338,7 @@ export default function PartnerInstallerPortal() {
       setActionMessage("완료보고가 저장되었습니다.");
     } catch (err) {
       console.error(err);
-      setActionMessage("완료보고 API 연결 실패");
+      setActionMessage(err.message || "완료보고 API 연결 실패");
     } finally {
       setCompletingJobId("");
     }
@@ -367,26 +353,18 @@ export default function PartnerInstallerPortal() {
     setActionMessage("");
 
     try {
-      const response = await fetch(WEBAPP_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "text/plain;charset=utf-8",
-        },
-        body: JSON.stringify({
-          action: "addHistory",
-          rowNumber: job.rowNumber || "",
-          jobId: job.id || job.jobId || "",
-          id: job.id || "",
-          month: job.month || job.sheet || "",
-          role: user.role,
-          partnerName: user.partnerName || job.partner || "",
-          engineerName: user.engineerName || job.engineer || "",
-          actor: user.name || user.engineerName || user.partnerName || "사용자",
-          text: text.trim(),
-        }),
+      const result = await apiPost({
+        action: "addHistory",
+        rowNumber: job.rowNumber || "",
+        jobId: job.id || job.jobId || "",
+        id: job.id || "",
+        month: job.month || job.sheet || "",
+        role: user.role,
+        partnerName: user.partnerName || job.partner || "",
+        engineerName: user.engineerName || job.engineer || "",
+        actor: user.name || user.engineerName || user.partnerName || "사용자",
+        text: text.trim(),
       });
-
-      const result = await response.json();
 
       if (!result.success) {
         setActionMessage(result.message || "이력등록 저장에 실패했습니다.");
@@ -400,7 +378,7 @@ export default function PartnerInstallerPortal() {
       setActionMessage("이력등록이 저장되었습니다.");
     } catch (err) {
       console.error(err);
-      setActionMessage("이력등록 API 연결 실패");
+      setActionMessage(err.message || "이력등록 API 연결 실패");
     } finally {
       setHistorySavingJobId("");
     }

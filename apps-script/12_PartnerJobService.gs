@@ -144,8 +144,8 @@ function assignEngineer(body) {
   const month = String(body.month || "").trim();
   const rowNumber = Number(body.rowNumber || 0);
   const partnerName = String(body.partnerName || "").trim();
-  const engineerName = String(body.engineerName || "").trim();
-  let engineerPhone = String(body.engineerPhone || "").trim();
+  const engineerName = String(body.engineerName || body.installerName || body.engineer || body.installer || "").trim();
+  let engineerPhone = String(body.engineerPhone || body.installerPhone || "").trim();
 
   if (!month) {
     return {
