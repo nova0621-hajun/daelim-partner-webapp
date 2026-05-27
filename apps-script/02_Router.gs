@@ -88,6 +88,15 @@ function doPost(e) {
       case "adminChangePassword":
         return jsonOutput(adminChangePassword(body));
 
+      case "adminAccounts":
+        return jsonOutput(getAdminAccounts(body));
+
+      case "adminUpdateAccount":
+        return jsonOutput(adminUpdateAccount(body));
+
+      case "adminResetPassword":
+        return jsonOutput(adminResetPassword(body));
+
       case "getPartnerJobs":
         return jsonOutput(getPartnerJobs(body));
 

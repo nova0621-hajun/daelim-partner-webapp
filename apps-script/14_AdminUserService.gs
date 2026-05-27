@@ -236,3 +236,203 @@ function adminChangePassword(body) {
     message: "계정을 찾을 수 없습니다."
   };
 }
+
+/**
+ * 마스터 권한 확인
+ *
+ * @param {Object} body 요청 데이터
+ * @returns {Object} 확인 결과
+ */
+function verifyAdminMasterForAccount_(body) {
+  const masterPassword = adminUserText_(body.masterPassword);
+
+  if (masterPassword) {
+    const masterAuth = checkAdminPassword({
+      parameter: {
+        masterPassword: masterPassword
+      }
+    });
+
+    if (masterAuth.success) {
+      return {
+        success: true,
+        role: "master",
+        name: "master"
+      };
+    }
+  }
+
+  const userAuth = verifyAdminUserCredentials_(body.userName, body.userPassword);
+
+  if (userAuth.success && userAuth.role === "master") {
+    return userAuth;
+  }
+
+  return {
+    success: false,
+    message: "master 권한이 없습니다."
+  };
+}
+
+/**
+ * 계정 행을 API 응답 데이터로 변환
+ *
+ * @param {Array} row 시트 행
+ * @param {number} rowNumber 행 번호
+ * @returns {Object} 계정 데이터
+ */
+function adminAccountRowToApi_(row, rowNumber) {
+  return {
+    rowNumber: rowNumber,
+    team: adminUserText_(row[ADMIN_USER_COL.TEAM - 1]),
+    position: adminUserText_(row[ADMIN_USER_COL.POSITION - 1]),
+    name: adminUserText_(row[ADMIN_USER_COL.NAME - 1]),
+    extension: adminUserText_(row[ADMIN_USER_COL.EXTENSION - 1]),
+    phone: adminUserText_(row[ADMIN_USER_COL.PHONE - 1]),
+    role: adminUserText_(row[ADMIN_USER_COL.ROLE - 1]) || "viewer",
+    enabled: adminUserText_(row[ADMIN_USER_COL.ENABLED - 1]) || "대기",
+    passwordStatus: adminUserText_(row[ADMIN_USER_COL.PASSWORD_STATUS - 1]) || "임시"
+  };
+}
+
+/**
+ * master 전용 계정 목록 조회
+ *
+ * @param {Object} body 요청 데이터
+ * @returns {Object} 계정 목록
+ */
+function getAdminAccounts(body) {
+  const auth = verifyAdminMasterForAccount_(body);
+
+  if (!auth.success) {
+    return auth;
+  }
+
+  const sheet = getAdminUserSheet_();
+  const values = sheet.getDataRange().getValues();
+  const rows = [];
+
+  for (let i = 1; i < values.length; i++) {
+    const row = values[i];
+    const name = adminUserText_(row[ADMIN_USER_COL.NAME - 1]);
+
+    if (!name) continue;
+
+    rows.push(adminAccountRowToApi_(row, i + 1));
+  }
+
+  return {
+    success: true,
+    rows: rows
+  };
+}
+
+/**
+ * master 전용 계정 승인/중지/권한 변경
+ *
+ * @param {Object} body 요청 데이터
+ * @returns {Object} 변경 결과
+ */
+function adminUpdateAccount(body) {
+  const auth = verifyAdminMasterForAccount_(body);
+
+  if (!auth.success) {
+    return auth;
+  }
+
+  const rowNumber = Number(body.rowNumber);
+  const role = adminUserText_(body.role);
+  const enabled = adminUserText_(body.enabled);
+  const team = adminUserText_(body.team);
+  const position = adminUserText_(body.position);
+
+  const allowedRoles = ["master", "team1_leader", "team2_leader", "sales", "viewer"];
+  const allowedEnabled = ["승인", "대기", "중지"];
+
+  if (!rowNumber || rowNumber < 2) {
+    return {
+      success: false,
+      message: "행 번호가 올바르지 않습니다."
+    };
+  }
+
+  if (role && allowedRoles.indexOf(role) === -1) {
+    return {
+      success: false,
+      message: "지원하지 않는 권한입니다."
+    };
+  }
+
+  if (enabled && allowedEnabled.indexOf(enabled) === -1) {
+    return {
+      success: false,
+      message: "지원하지 않는 사용여부 값입니다."
+    };
+  }
+
+  const sheet = getAdminUserSheet_();
+
+  if (team) sheet.getRange(rowNumber, ADMIN_USER_COL.TEAM).setValue(team);
+  sheet.getRange(rowNumber, ADMIN_USER_COL.POSITION).setValue(position);
+  if (role) sheet.getRange(rowNumber, ADMIN_USER_COL.ROLE).setValue(role);
+  if (enabled) sheet.getRange(rowNumber, ADMIN_USER_COL.ENABLED).setValue(enabled);
+
+  SpreadsheetApp.flush();
+
+  const row = sheet
+    .getRange(rowNumber, 1, 1, ADMIN_USER_COL.PASSWORD_STATUS)
+    .getValues()[0];
+
+  return {
+    success: true,
+    account: adminAccountRowToApi_(row, rowNumber),
+    message: "계정 정보가 저장되었습니다."
+  };
+}
+
+/**
+ * master 전용 비밀번호 초기화
+ *
+ * @param {Object} body 요청 데이터
+ * @returns {Object} 초기화 결과
+ */
+function adminResetPassword(body) {
+  const auth = verifyAdminMasterForAccount_(body);
+
+  if (!auth.success) {
+    return auth;
+  }
+
+  const rowNumber = Number(body.rowNumber);
+  const nextPassword = adminUserText_(body.nextPassword);
+
+  if (!rowNumber || rowNumber < 2) {
+    return {
+      success: false,
+      message: "행 번호가 올바르지 않습니다."
+    };
+  }
+
+  if (!/^[0-9]{4}$/.test(nextPassword)) {
+    return {
+      success: false,
+      message: "초기화 비밀번호는 숫자 4자리여야 합니다."
+    };
+  }
+
+  const sheet = getAdminUserSheet_();
+  sheet.getRange(rowNumber, ADMIN_USER_COL.PASSWORD).setValue(nextPassword);
+  sheet.getRange(rowNumber, ADMIN_USER_COL.PASSWORD_STATUS).setValue("임시");
+
+  SpreadsheetApp.flush();
+
+  const row = sheet
+    .getRange(rowNumber, 1, 1, ADMIN_USER_COL.PASSWORD_STATUS)
+    .getValues()[0];
+
+  return {
+    success: true,
+    account: adminAccountRowToApi_(row, rowNumber),
+    message: "비밀번호가 초기화되었습니다."
+  };
+}
