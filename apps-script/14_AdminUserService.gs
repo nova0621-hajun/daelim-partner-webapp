@@ -97,7 +97,8 @@ function adminPasswordMatches_(savedPassword, inputPassword) {
   const saved = adminUserText_(savedPassword);
   const input = adminUserText_(inputPassword);
 
-  if (!saved || !input) return false;
+  if (!input) return false;
+  if (!saved && input === "0000") return true;
   if (saved === input) return true;
   if (saved === adminHashPassword_(input)) return true;
 
@@ -115,14 +116,87 @@ function adminMustChangePassword_(passwordStatus, savedPassword) {
   const status = adminUserText_(passwordStatus);
   const password = adminUserText_(savedPassword);
 
-  return status === "임시" || password === "0000";
+  return status === "임시" || password === "0000" || !password;
+}
+
+/**
+ * 소속팀 / 이름 기준 자동 권한 계산
+ *
+ * @param {string} team 소속팀
+ * @param {string} name 이름
+ * @returns {string} 자동 권한
+ */
+function getAutoAdminRole_(team, name) {
+  const accountTeam = adminUserText_(team);
+  const accountName = adminUserText_(name);
+
+  if (accountName === DAELIM_DEFAULT_MASTER_NAME) return "master";
+  if (accountTeam === "영업1팀" && accountName === "이상민") return "team1_leader";
+  if (accountTeam === "영업2팀" && accountName === "김태호") return "team2_leader";
+  if (accountTeam === "영업1팀" || accountTeam === "영업2팀") return "sales";
+
+  return "viewer";
+}
+
+/**
+ * 기초데이터 계정 자동 보정
+ *
+ * F열 비밀번호가 비어 있으면 0000 임시비밀번호로 설정하고,
+ * A열 소속팀 / C열 이름 기준으로 권한과 사용여부를 자동 보정합니다.
+ *
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet 계정 시트
+ * @param {Array} row 행 데이터
+ * @param {number} rowNumber 행 번호
+ * @returns {Object} 보정된 계정 정보
+ */
+function normalizeAdminAccountRow_(sheet, row, rowNumber) {
+  const team = adminUserText_(row[DAELIM_ADMIN_ACCOUNT_COL.TEAM - 1]);
+  const name = adminUserText_(row[DAELIM_ADMIN_ACCOUNT_COL.NAME - 1]);
+  let password = adminUserText_(row[DAELIM_ADMIN_ACCOUNT_COL.PASSWORD - 1]);
+  let passwordStatus = adminUserText_(row[DAELIM_ADMIN_ACCOUNT_COL.PASSWORD_STATUS - 1]);
+  const role = getAutoAdminRole_(team, name);
+
+  if (!name) {
+    return {
+      team: team,
+      name: name,
+      password: password,
+      passwordStatus: passwordStatus,
+      role: role,
+      enabled: adminUserText_(row[DAELIM_ADMIN_ACCOUNT_COL.ENABLED - 1])
+    };
+  }
+
+  if (!password) {
+    password = "0000";
+    passwordStatus = "임시";
+    sheet.getRange(rowNumber, DAELIM_ADMIN_ACCOUNT_COL.PASSWORD).setValue(password);
+    sheet.getRange(rowNumber, DAELIM_ADMIN_ACCOUNT_COL.PASSWORD_STATUS).setValue(passwordStatus);
+  }
+
+  if (!passwordStatus) {
+    passwordStatus = password === "0000" ? "임시" : "정상";
+    sheet.getRange(rowNumber, DAELIM_ADMIN_ACCOUNT_COL.PASSWORD_STATUS).setValue(passwordStatus);
+  }
+
+  sheet.getRange(rowNumber, DAELIM_ADMIN_ACCOUNT_COL.ROLE).setValue(role);
+  sheet.getRange(rowNumber, DAELIM_ADMIN_ACCOUNT_COL.ENABLED).setValue("승인");
+
+  return {
+    team: team,
+    name: name,
+    password: password,
+    passwordStatus: passwordStatus,
+    role: role,
+    enabled: "승인"
+  };
 }
 
 /**
  * 기본 마스터 계정 보정
  *
  * 기초데이터 시트에 최하준 계정이 없으면 생성하고,
- * 있으면 master / 승인 / 정상 / 0621 기준으로 보정합니다.
+ * 있으면 master / 승인 기준으로 보정합니다.
  */
 function ensureDefaultMasterAccount_() {
   const sheet = getAdminUserSheet_();
@@ -192,11 +266,12 @@ function verifyAdminUserCredentials_(loginName, loginPassword) {
   for (let i = 1; i < values.length; i++) {
     const row = values[i];
     const name = adminUserText_(row[DAELIM_ADMIN_ACCOUNT_COL.NAME - 1]);
-    const password = adminUserText_(row[DAELIM_ADMIN_ACCOUNT_COL.PASSWORD - 1]);
+    const normalized = normalizeAdminAccountRow_(sheet, row, i + 1);
+    const password = normalized.password;
 
     if (name !== loginName) continue;
 
-    if (!isAdminUserApproved_(row[DAELIM_ADMIN_ACCOUNT_COL.ENABLED - 1])) {
+    if (!isAdminUserApproved_(normalized.enabled)) {
       return {
         success: false,
         message: "승인되지 않았거나 중지된 계정입니다."
@@ -215,12 +290,12 @@ function verifyAdminUserCredentials_(loginName, loginPassword) {
     return {
       success: true,
       name: name,
-      team: adminUserText_(row[DAELIM_ADMIN_ACCOUNT_COL.TEAM - 1]),
+      team: normalized.team,
       position: adminUserText_(row[DAELIM_ADMIN_ACCOUNT_COL.POSITION - 1]),
       phone: adminUserText_(row[DAELIM_ADMIN_ACCOUNT_COL.PHONE - 1]),
-      role: adminUserText_(row[DAELIM_ADMIN_ACCOUNT_COL.ROLE - 1]) || "viewer",
-      passwordStatus: adminUserText_(row[DAELIM_ADMIN_ACCOUNT_COL.PASSWORD_STATUS - 1]) || "정상",
-      mustChangePassword: adminMustChangePassword_(row[DAELIM_ADMIN_ACCOUNT_COL.PASSWORD_STATUS - 1], password),
+      role: normalized.role,
+      passwordStatus: normalized.passwordStatus || "정상",
+      mustChangePassword: adminMustChangePassword_(normalized.passwordStatus, password),
       loginTime: new Date(),
       message: "인증 성공"
     };
@@ -437,7 +512,13 @@ function getAdminAccounts(body) {
 
     if (!name) continue;
 
-    rows.push(adminAccountRowToApi_(row, i + 1));
+    normalizeAdminAccountRow_(sheet, row, i + 1);
+
+    const normalizedRow = sheet
+      .getRange(i + 1, 1, 1, DAELIM_ADMIN_ACCOUNT_COL.PASSWORD_STATUS)
+      .getValues()[0];
+
+    rows.push(adminAccountRowToApi_(normalizedRow, i + 1));
   }
 
   return {
