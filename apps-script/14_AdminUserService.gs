@@ -4,16 +4,16 @@
  ***************************************/
 
 /** 시공관리 계정 시트명 */
-const ADMIN_USER_SHEET_NAME = "기초데이터";
+var ADMIN_USER_SHEET_NAME = "기초데이터";
 
 /** 기본 마스터 계정 이름 */
-const DEFAULT_MASTER_NAME = "최하준";
+var DEFAULT_MASTER_NAME = "최하준";
 
 /** 기본 마스터 계정 비밀번호 */
-const DEFAULT_MASTER_PASSWORD = "0621";
+var DEFAULT_MASTER_PASSWORD = "0621";
 
 /** 시공관리 계정 시트 컬럼 */
-const ADMIN_USER_COL = {
+var ADMIN_USER_COL = {
   TEAM: 1,
   POSITION: 2,
   NAME: 3,
