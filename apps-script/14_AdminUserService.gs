@@ -154,6 +154,7 @@ function normalizeAdminAccountRow_(sheet, row, rowNumber) {
   const name = adminUserText_(row[DAELIM_ADMIN_ACCOUNT_COL.NAME - 1]);
   let password = adminUserText_(row[DAELIM_ADMIN_ACCOUNT_COL.PASSWORD - 1]);
   let passwordStatus = adminUserText_(row[DAELIM_ADMIN_ACCOUNT_COL.PASSWORD_STATUS - 1]);
+  let enabled = adminUserText_(row[DAELIM_ADMIN_ACCOUNT_COL.ENABLED - 1]);
   const role = getAutoAdminRole_(team, name);
 
   if (!name) {
@@ -163,7 +164,7 @@ function normalizeAdminAccountRow_(sheet, row, rowNumber) {
       password: password,
       passwordStatus: passwordStatus,
       role: role,
-      enabled: adminUserText_(row[DAELIM_ADMIN_ACCOUNT_COL.ENABLED - 1])
+      enabled: enabled
     };
   }
 
@@ -180,7 +181,11 @@ function normalizeAdminAccountRow_(sheet, row, rowNumber) {
   }
 
   sheet.getRange(rowNumber, DAELIM_ADMIN_ACCOUNT_COL.ROLE).setValue(role);
-  sheet.getRange(rowNumber, DAELIM_ADMIN_ACCOUNT_COL.ENABLED).setValue("승인");
+
+  if (!enabled) {
+    enabled = "승인";
+    sheet.getRange(rowNumber, DAELIM_ADMIN_ACCOUNT_COL.ENABLED).setValue(enabled);
+  }
 
   return {
     team: team,
@@ -188,7 +193,7 @@ function normalizeAdminAccountRow_(sheet, row, rowNumber) {
     password: password,
     passwordStatus: passwordStatus,
     role: role,
-    enabled: "승인"
+    enabled: enabled
   };
 }
 
@@ -335,12 +340,12 @@ function adminRegister(body) {
   const name = adminUserText_(body.name);
   const team = adminUserText_(body.team);
   const phone = adminUserText_(body.phone);
-  const password = adminUserText_(body.password);
+  const password = adminUserText_(body.password) || "0000";
 
-  if (!name || !team || !phone || !/^[0-9]{4}$/.test(password)) {
+  if (!name || !phone || !/^[0-9]{4}$/.test(password)) {
     return {
       success: false,
-      message: "이름, 소속팀, 휴대전화, 숫자 4자리 비밀번호를 입력해 주세요."
+      message: "이름, 휴대전화, 숫자 4자리 비밀번호를 입력해 주세요."
     };
   }
 
