@@ -1,12 +1,12 @@
 /***************************************
  * 14_AdminUserService.gs
- * Admin webapp account authentication
+ * 시공관리 웹앱 계정 인증
  ***************************************/
 
-/** Admin account sheet name */
+/** 시공관리 계정 시트명 */
 const ADMIN_USER_SHEET_NAME = "기초데이터";
 
-/** Admin account sheet columns */
+/** 시공관리 계정 시트 컬럼 */
 const ADMIN_USER_COL = {
   TEAM: 1,
   POSITION: 2,
@@ -20,19 +20,19 @@ const ADMIN_USER_COL = {
 };
 
 /**
- * Normalize account text.
+ * 계정 값을 문자열로 정리
  *
- * @param {*} value Raw value
- * @returns {string} Trimmed text
+ * @param {*} value 원본 값
+ * @returns {string} 앞뒤 공백 제거 문자열
  */
 function adminUserText_(value) {
   return String(value || "").trim();
 }
 
 /**
- * Get admin user sheet.
+ * 시공관리 계정 시트 조회
  *
- * @returns {GoogleAppsScript.Spreadsheet.Sheet} User sheet
+ * @returns {GoogleAppsScript.Spreadsheet.Sheet} 계정 시트
  */
 function getAdminUserSheet_() {
   const sheet = SpreadsheetApp
@@ -47,10 +47,10 @@ function getAdminUserSheet_() {
 }
 
 /**
- * Check whether account is approved.
+ * 계정 승인 여부 확인
  *
- * @param {*} value Enabled value
- * @returns {boolean} Approved status
+ * @param {*} value 사용여부 값
+ * @returns {boolean} 승인 여부
  */
 function isAdminUserApproved_(value) {
   const enabled = adminUserText_(value);
@@ -58,17 +58,17 @@ function isAdminUserApproved_(value) {
 }
 
 /**
- * Login to admin webapp.
+ * 시공관리 계정 인증
  *
- * Login ID is the user name.
- * Password is a 4-digit number.
+ * 로그인 ID는 이름이고, 비밀번호는 숫자 4자리입니다.
  *
- * @param {Object} body Request body
- * @returns {Object} Login result
+ * @param {string} loginName 로그인 이름
+ * @param {string} loginPassword 로그인 비밀번호
+ * @returns {Object} 인증 결과
  */
-function adminLogin(body) {
-  const loginName = adminUserText_(body.name);
-  const loginPassword = adminUserText_(body.password);
+function verifyAdminUserCredentials_(loginName, loginPassword) {
+  loginName = adminUserText_(loginName);
+  loginPassword = adminUserText_(loginPassword);
 
   if (!loginName || !/^[0-9]{4}$/.test(loginPassword)) {
     return {
@@ -112,7 +112,7 @@ function adminLogin(body) {
       role: adminUserText_(row[ADMIN_USER_COL.ROLE - 1]) || "viewer",
       passwordStatus: adminUserText_(row[ADMIN_USER_COL.PASSWORD_STATUS - 1]) || "정상",
       loginTime: new Date(),
-      message: "로그인 성공"
+      message: "인증 성공"
     };
   }
 
@@ -123,12 +123,28 @@ function adminLogin(body) {
 }
 
 /**
- * Request admin webapp account registration.
+ * 시공관리 웹앱 로그인
  *
- * New accounts are appended as viewer / 대기 / 임시.
+ * @param {Object} body 요청 데이터
+ * @returns {Object} 로그인 결과
+ */
+function adminLogin(body) {
+  const result = verifyAdminUserCredentials_(body.name, body.password);
+
+  if (result.success) {
+    result.message = "로그인 성공";
+  }
+
+  return result;
+}
+
+/**
+ * 시공관리 웹앱 계정 가입 요청
  *
- * @param {Object} body Request body
- * @returns {Object} Registration result
+ * 신규 계정은 viewer / 대기 / 임시 상태로 등록합니다.
+ *
+ * @param {Object} body 요청 데이터
+ * @returns {Object} 가입 요청 결과
  */
 function adminRegister(body) {
   const name = adminUserText_(body.name);
@@ -174,10 +190,10 @@ function adminRegister(body) {
 }
 
 /**
- * Change admin webapp password.
+ * 시공관리 웹앱 비밀번호 변경
  *
- * @param {Object} body Request body
- * @returns {Object} Change result
+ * @param {Object} body 요청 데이터
+ * @returns {Object} 변경 결과
  */
 function adminChangePassword(body) {
   const name = adminUserText_(body.name);
