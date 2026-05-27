@@ -1,19 +1,19 @@
-/***************************************
+﻿/***************************************
  * 14_AdminUserService.gs
  * 시공관리 웹앱 계정 인증
  ***************************************/
 
 /** 시공관리 계정 시트명 */
-var ADMIN_USER_SHEET_NAME = "기초데이터";
+var DAELIM_ADMIN_ACCOUNT_SHEET_NAME = "기초데이터";
 
 /** 기본 마스터 계정 이름 */
-var DEFAULT_MASTER_NAME = "최하준";
+var DAELIM_DEFAULT_MASTER_NAME = "최하준";
 
 /** 기본 마스터 계정 비밀번호 */
-var DEFAULT_MASTER_PASSWORD = "0621";
+var DAELIM_DEFAULT_MASTER_PASSWORD = "0621";
 
 /** 시공관리 계정 시트 컬럼 */
-var ADMIN_USER_COL = {
+var DAELIM_ADMIN_ACCOUNT_COL = {
   TEAM: 1,
   POSITION: 2,
   NAME: 3,
@@ -43,7 +43,7 @@ function adminUserText_(value) {
 function getAdminUserSheet_() {
   const sheet = SpreadsheetApp
     .getActiveSpreadsheet()
-    .getSheetByName(ADMIN_USER_SHEET_NAME);
+    .getSheetByName(DAELIM_ADMIN_ACCOUNT_SHEET_NAME);
 
   if (!sheet) {
     throw new Error("기초데이터 시트를 찾을 수 없습니다.");
@@ -75,17 +75,17 @@ function ensureDefaultMasterAccount_() {
 
   for (let i = 1; i < values.length; i++) {
     const row = values[i];
-    const name = adminUserText_(row[ADMIN_USER_COL.NAME - 1]);
+    const name = adminUserText_(row[DAELIM_ADMIN_ACCOUNT_COL.NAME - 1]);
 
-    if (name !== DEFAULT_MASTER_NAME) continue;
+    if (name !== DAELIM_DEFAULT_MASTER_NAME) continue;
 
     const rowNumber = i + 1;
 
-    sheet.getRange(rowNumber, ADMIN_USER_COL.NAME).setValue(DEFAULT_MASTER_NAME);
-    sheet.getRange(rowNumber, ADMIN_USER_COL.PASSWORD).setValue(DEFAULT_MASTER_PASSWORD);
-    sheet.getRange(rowNumber, ADMIN_USER_COL.ROLE).setValue("master");
-    sheet.getRange(rowNumber, ADMIN_USER_COL.ENABLED).setValue("승인");
-    sheet.getRange(rowNumber, ADMIN_USER_COL.PASSWORD_STATUS).setValue("정상");
+    sheet.getRange(rowNumber, DAELIM_ADMIN_ACCOUNT_COL.NAME).setValue(DAELIM_DEFAULT_MASTER_NAME);
+    sheet.getRange(rowNumber, DAELIM_ADMIN_ACCOUNT_COL.PASSWORD).setValue(DAELIM_DEFAULT_MASTER_PASSWORD);
+    sheet.getRange(rowNumber, DAELIM_ADMIN_ACCOUNT_COL.ROLE).setValue("master");
+    sheet.getRange(rowNumber, DAELIM_ADMIN_ACCOUNT_COL.ENABLED).setValue("승인");
+    sheet.getRange(rowNumber, DAELIM_ADMIN_ACCOUNT_COL.PASSWORD_STATUS).setValue("정상");
 
     return;
   }
@@ -93,10 +93,10 @@ function ensureDefaultMasterAccount_() {
   sheet.appendRow([
     "관리",
     "master",
-    DEFAULT_MASTER_NAME,
+    DAELIM_DEFAULT_MASTER_NAME,
     "",
     "",
-    DEFAULT_MASTER_PASSWORD,
+    DAELIM_DEFAULT_MASTER_PASSWORD,
     "master",
     "승인",
     "정상"
@@ -130,12 +130,12 @@ function verifyAdminUserCredentials_(loginName, loginPassword) {
 
   for (let i = 1; i < values.length; i++) {
     const row = values[i];
-    const name = adminUserText_(row[ADMIN_USER_COL.NAME - 1]);
-    const password = adminUserText_(row[ADMIN_USER_COL.PASSWORD - 1]);
+    const name = adminUserText_(row[DAELIM_ADMIN_ACCOUNT_COL.NAME - 1]);
+    const password = adminUserText_(row[DAELIM_ADMIN_ACCOUNT_COL.PASSWORD - 1]);
 
     if (name !== loginName) continue;
 
-    if (!isAdminUserApproved_(row[ADMIN_USER_COL.ENABLED - 1])) {
+    if (!isAdminUserApproved_(row[DAELIM_ADMIN_ACCOUNT_COL.ENABLED - 1])) {
       return {
         success: false,
         message: "승인되지 않았거나 중지된 계정입니다."
@@ -149,16 +149,16 @@ function verifyAdminUserCredentials_(loginName, loginPassword) {
       };
     }
 
-    sheet.getRange(i + 1, ADMIN_USER_COL.EXTENSION).setNote("lastLogin: " + new Date());
+    sheet.getRange(i + 1, DAELIM_ADMIN_ACCOUNT_COL.EXTENSION).setNote("lastLogin: " + new Date());
 
     return {
       success: true,
       name: name,
-      team: adminUserText_(row[ADMIN_USER_COL.TEAM - 1]),
-      position: adminUserText_(row[ADMIN_USER_COL.POSITION - 1]),
-      phone: adminUserText_(row[ADMIN_USER_COL.PHONE - 1]),
-      role: adminUserText_(row[ADMIN_USER_COL.ROLE - 1]) || "viewer",
-      passwordStatus: adminUserText_(row[ADMIN_USER_COL.PASSWORD_STATUS - 1]) || "정상",
+      team: adminUserText_(row[DAELIM_ADMIN_ACCOUNT_COL.TEAM - 1]),
+      position: adminUserText_(row[DAELIM_ADMIN_ACCOUNT_COL.POSITION - 1]),
+      phone: adminUserText_(row[DAELIM_ADMIN_ACCOUNT_COL.PHONE - 1]),
+      role: adminUserText_(row[DAELIM_ADMIN_ACCOUNT_COL.ROLE - 1]) || "viewer",
+      passwordStatus: adminUserText_(row[DAELIM_ADMIN_ACCOUNT_COL.PASSWORD_STATUS - 1]) || "정상",
       loginTime: new Date(),
       message: "인증 성공"
     };
@@ -211,7 +211,7 @@ function adminRegister(body) {
   const values = sheet.getDataRange().getValues();
 
   for (let i = 1; i < values.length; i++) {
-    if (adminUserText_(values[i][ADMIN_USER_COL.NAME - 1]) === name) {
+    if (adminUserText_(values[i][DAELIM_ADMIN_ACCOUNT_COL.NAME - 1]) === name) {
       return {
         success: false,
         message: "이미 등록된 이름입니다."
@@ -261,17 +261,17 @@ function adminChangePassword(body) {
   for (let i = 1; i < values.length; i++) {
     const row = values[i];
 
-    if (adminUserText_(row[ADMIN_USER_COL.NAME - 1]) !== name) continue;
+    if (adminUserText_(row[DAELIM_ADMIN_ACCOUNT_COL.NAME - 1]) !== name) continue;
 
-    if (adminUserText_(row[ADMIN_USER_COL.PASSWORD - 1]) !== currentPassword) {
+    if (adminUserText_(row[DAELIM_ADMIN_ACCOUNT_COL.PASSWORD - 1]) !== currentPassword) {
       return {
         success: false,
         message: "현재 비밀번호가 일치하지 않습니다."
       };
     }
 
-    sheet.getRange(i + 1, ADMIN_USER_COL.PASSWORD).setValue(nextPassword);
-    sheet.getRange(i + 1, ADMIN_USER_COL.PASSWORD_STATUS).setValue("정상");
+    sheet.getRange(i + 1, DAELIM_ADMIN_ACCOUNT_COL.PASSWORD).setValue(nextPassword);
+    sheet.getRange(i + 1, DAELIM_ADMIN_ACCOUNT_COL.PASSWORD_STATUS).setValue("정상");
 
     return {
       success: true,
@@ -332,14 +332,14 @@ function verifyAdminMasterForAccount_(body) {
 function adminAccountRowToApi_(row, rowNumber) {
   return {
     rowNumber: rowNumber,
-    team: adminUserText_(row[ADMIN_USER_COL.TEAM - 1]),
-    position: adminUserText_(row[ADMIN_USER_COL.POSITION - 1]),
-    name: adminUserText_(row[ADMIN_USER_COL.NAME - 1]),
-    extension: adminUserText_(row[ADMIN_USER_COL.EXTENSION - 1]),
-    phone: adminUserText_(row[ADMIN_USER_COL.PHONE - 1]),
-    role: adminUserText_(row[ADMIN_USER_COL.ROLE - 1]) || "viewer",
-    enabled: adminUserText_(row[ADMIN_USER_COL.ENABLED - 1]) || "대기",
-    passwordStatus: adminUserText_(row[ADMIN_USER_COL.PASSWORD_STATUS - 1]) || "임시"
+    team: adminUserText_(row[DAELIM_ADMIN_ACCOUNT_COL.TEAM - 1]),
+    position: adminUserText_(row[DAELIM_ADMIN_ACCOUNT_COL.POSITION - 1]),
+    name: adminUserText_(row[DAELIM_ADMIN_ACCOUNT_COL.NAME - 1]),
+    extension: adminUserText_(row[DAELIM_ADMIN_ACCOUNT_COL.EXTENSION - 1]),
+    phone: adminUserText_(row[DAELIM_ADMIN_ACCOUNT_COL.PHONE - 1]),
+    role: adminUserText_(row[DAELIM_ADMIN_ACCOUNT_COL.ROLE - 1]) || "viewer",
+    enabled: adminUserText_(row[DAELIM_ADMIN_ACCOUNT_COL.ENABLED - 1]) || "대기",
+    passwordStatus: adminUserText_(row[DAELIM_ADMIN_ACCOUNT_COL.PASSWORD_STATUS - 1]) || "임시"
   };
 }
 
@@ -364,7 +364,7 @@ function getAdminAccounts(body) {
 
   for (let i = 1; i < values.length; i++) {
     const row = values[i];
-    const name = adminUserText_(row[ADMIN_USER_COL.NAME - 1]);
+    const name = adminUserText_(row[DAELIM_ADMIN_ACCOUNT_COL.NAME - 1]);
 
     if (!name) continue;
 
@@ -422,15 +422,15 @@ function adminUpdateAccount(body) {
 
   const sheet = getAdminUserSheet_();
 
-  if (team) sheet.getRange(rowNumber, ADMIN_USER_COL.TEAM).setValue(team);
-  sheet.getRange(rowNumber, ADMIN_USER_COL.POSITION).setValue(position);
-  if (role) sheet.getRange(rowNumber, ADMIN_USER_COL.ROLE).setValue(role);
-  if (enabled) sheet.getRange(rowNumber, ADMIN_USER_COL.ENABLED).setValue(enabled);
+  if (team) sheet.getRange(rowNumber, DAELIM_ADMIN_ACCOUNT_COL.TEAM).setValue(team);
+  sheet.getRange(rowNumber, DAELIM_ADMIN_ACCOUNT_COL.POSITION).setValue(position);
+  if (role) sheet.getRange(rowNumber, DAELIM_ADMIN_ACCOUNT_COL.ROLE).setValue(role);
+  if (enabled) sheet.getRange(rowNumber, DAELIM_ADMIN_ACCOUNT_COL.ENABLED).setValue(enabled);
 
   SpreadsheetApp.flush();
 
   const row = sheet
-    .getRange(rowNumber, 1, 1, ADMIN_USER_COL.PASSWORD_STATUS)
+    .getRange(rowNumber, 1, 1, DAELIM_ADMIN_ACCOUNT_COL.PASSWORD_STATUS)
     .getValues()[0];
 
   return {
@@ -471,13 +471,13 @@ function adminResetPassword(body) {
   }
 
   const sheet = getAdminUserSheet_();
-  sheet.getRange(rowNumber, ADMIN_USER_COL.PASSWORD).setValue(nextPassword);
-  sheet.getRange(rowNumber, ADMIN_USER_COL.PASSWORD_STATUS).setValue("임시");
+  sheet.getRange(rowNumber, DAELIM_ADMIN_ACCOUNT_COL.PASSWORD).setValue(nextPassword);
+  sheet.getRange(rowNumber, DAELIM_ADMIN_ACCOUNT_COL.PASSWORD_STATUS).setValue("임시");
 
   SpreadsheetApp.flush();
 
   const row = sheet
-    .getRange(rowNumber, 1, 1, ADMIN_USER_COL.PASSWORD_STATUS)
+    .getRange(rowNumber, 1, 1, DAELIM_ADMIN_ACCOUNT_COL.PASSWORD_STATUS)
     .getValues()[0];
 
   return {
