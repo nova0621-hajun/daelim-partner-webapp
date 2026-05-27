@@ -6,6 +6,12 @@
 /** 시공관리 계정 시트명 */
 const ADMIN_USER_SHEET_NAME = "기초데이터";
 
+/** 기본 마스터 계정 이름 */
+const DEFAULT_MASTER_NAME = "최하준";
+
+/** 기본 마스터 계정 비밀번호 */
+const DEFAULT_MASTER_PASSWORD = "0621";
+
 /** 시공관리 계정 시트 컬럼 */
 const ADMIN_USER_COL = {
   TEAM: 1,
@@ -58,6 +64,46 @@ function isAdminUserApproved_(value) {
 }
 
 /**
+ * 기본 마스터 계정 보정
+ *
+ * 기초데이터 시트에 최하준 계정이 없으면 생성하고,
+ * 있으면 master / 승인 / 정상 / 0621 기준으로 보정합니다.
+ */
+function ensureDefaultMasterAccount_() {
+  const sheet = getAdminUserSheet_();
+  const values = sheet.getDataRange().getValues();
+
+  for (let i = 1; i < values.length; i++) {
+    const row = values[i];
+    const name = adminUserText_(row[ADMIN_USER_COL.NAME - 1]);
+
+    if (name !== DEFAULT_MASTER_NAME) continue;
+
+    const rowNumber = i + 1;
+
+    sheet.getRange(rowNumber, ADMIN_USER_COL.NAME).setValue(DEFAULT_MASTER_NAME);
+    sheet.getRange(rowNumber, ADMIN_USER_COL.PASSWORD).setValue(DEFAULT_MASTER_PASSWORD);
+    sheet.getRange(rowNumber, ADMIN_USER_COL.ROLE).setValue("master");
+    sheet.getRange(rowNumber, ADMIN_USER_COL.ENABLED).setValue("승인");
+    sheet.getRange(rowNumber, ADMIN_USER_COL.PASSWORD_STATUS).setValue("정상");
+
+    return;
+  }
+
+  sheet.appendRow([
+    "관리",
+    "master",
+    DEFAULT_MASTER_NAME,
+    "",
+    "",
+    DEFAULT_MASTER_PASSWORD,
+    "master",
+    "승인",
+    "정상"
+  ]);
+}
+
+/**
  * 시공관리 계정 인증
  *
  * 로그인 ID는 이름이고, 비밀번호는 숫자 4자리입니다.
@@ -76,6 +122,8 @@ function verifyAdminUserCredentials_(loginName, loginPassword) {
       message: "이름과 숫자 4자리 비밀번호를 입력해 주세요."
     };
   }
+
+  ensureDefaultMasterAccount_();
 
   const sheet = getAdminUserSheet_();
   const values = sheet.getDataRange().getValues();
@@ -307,6 +355,8 @@ function getAdminAccounts(body) {
   if (!auth.success) {
     return auth;
   }
+
+  ensureDefaultMasterAccount_();
 
   const sheet = getAdminUserSheet_();
   const values = sheet.getDataRange().getValues();
