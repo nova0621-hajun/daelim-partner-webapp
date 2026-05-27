@@ -329,18 +329,20 @@ function adminLogin(body) {
 }
 
 /**
- * 시공관리 웹앱 계정 가입 요청
+ * 시공관리 웹앱 계정생성 요청
  *
- * 신규 계정은 viewer / 대기 / 임시 상태로 등록합니다.
+ * 신규 계정은 viewer / 대기 / 정상 상태로 등록합니다.
+ * 요청자가 설정한 숫자 4자리 비밀번호는 해시로 저장하고,
+ * master 승인 후 동일한 비밀번호로 로그인할 수 있습니다.
  *
  * @param {Object} body 요청 데이터
- * @returns {Object} 가입 요청 결과
+ * @returns {Object} 계정생성 요청 결과
  */
 function adminRegister(body) {
   const name = adminUserText_(body.name);
   const team = adminUserText_(body.team);
   const phone = adminUserText_(body.phone);
-  const password = adminUserText_(body.password) || "0000";
+  const password = adminUserText_(body.password);
 
   if (!name || !phone || !/^[0-9]{4}$/.test(password)) {
     return {
@@ -367,15 +369,15 @@ function adminRegister(body) {
     name,
     "",
     phone,
-    password,
+    adminHashPassword_(password),
     "viewer",
     "대기",
-    "임시"
+    "정상"
   ]);
 
   return {
     success: true,
-    message: "가입 요청이 등록되었습니다. master 승인 후 로그인할 수 있습니다."
+    message: "계정생성 요청이 등록되었습니다. master 승인 후 설정한 비밀번호로 로그인할 수 있습니다."
   };
 }
 
