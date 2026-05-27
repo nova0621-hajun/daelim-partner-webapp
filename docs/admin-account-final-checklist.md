@@ -42,6 +42,7 @@
 Apps Script 편집기에 아래 파일을 최신 코드로 반영한 뒤 새 배포 또는 배포 업데이트를 한다.
 
 - `02_Router.gs`
+- `09_AdminService.gs`
 - `13_PaymentService.gs`
 - `14_AdminUserService.gs`
 
