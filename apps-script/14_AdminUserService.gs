@@ -10,7 +10,7 @@ var DAELIM_ADMIN_ACCOUNT_SHEET_NAME = "기초데이터";
 var DAELIM_DEFAULT_MASTER_NAME = "최하준";
 
 /** 기본 마스터 계정 비밀번호 */
-var DAELIM_DEFAULT_MASTER_PASSWORD = "0621";
+var DAELIM_DEFAULT_MASTER_PASSWORD = "0000";
 
 /** 시공관리 계정 시트 컬럼 */
 var DAELIM_ADMIN_ACCOUNT_COL = {
@@ -64,6 +64,61 @@ function isAdminUserApproved_(value) {
 }
 
 /**
+ * 시공관리 계정 비밀번호 해시
+ *
+ * @param {string} password 원본 비밀번호
+ * @returns {string} 해시 비밀번호
+ */
+function adminHashPassword_(password) {
+  const digest = Utilities.computeDigest(
+    Utilities.DigestAlgorithm.SHA_256,
+    String(password || ""),
+    Utilities.Charset.UTF_8
+  );
+
+  const hash = digest.map(function(byte) {
+    const value = byte < 0 ? byte + 256 : byte;
+    return ("0" + value.toString(16)).slice(-2);
+  }).join("");
+
+  return "SHA256:" + hash;
+}
+
+/**
+ * 시공관리 계정 비밀번호 일치 확인
+ *
+ * 기존 평문 비밀번호와 신규 해시 비밀번호를 모두 지원합니다.
+ *
+ * @param {string} savedPassword 시트 저장 비밀번호
+ * @param {string} inputPassword 입력 비밀번호
+ * @returns {boolean} 일치 여부
+ */
+function adminPasswordMatches_(savedPassword, inputPassword) {
+  const saved = adminUserText_(savedPassword);
+  const input = adminUserText_(inputPassword);
+
+  if (!saved || !input) return false;
+  if (saved === input) return true;
+  if (saved === adminHashPassword_(input)) return true;
+
+  return false;
+}
+
+/**
+ * 비밀번호 변경 강제 여부
+ *
+ * @param {string} passwordStatus 비밀번호상태
+ * @param {string} savedPassword 저장 비밀번호
+ * @returns {boolean} 변경 강제 여부
+ */
+function adminMustChangePassword_(passwordStatus, savedPassword) {
+  const status = adminUserText_(passwordStatus);
+  const password = adminUserText_(savedPassword);
+
+  return status === "임시" || password === "0000";
+}
+
+/**
  * 기본 마스터 계정 보정
  *
  * 기초데이터 시트에 최하준 계정이 없으면 생성하고,
@@ -82,10 +137,16 @@ function ensureDefaultMasterAccount_() {
     const rowNumber = i + 1;
 
     sheet.getRange(rowNumber, DAELIM_ADMIN_ACCOUNT_COL.NAME).setValue(DAELIM_DEFAULT_MASTER_NAME);
-    sheet.getRange(rowNumber, DAELIM_ADMIN_ACCOUNT_COL.PASSWORD).setValue(DAELIM_DEFAULT_MASTER_PASSWORD);
     sheet.getRange(rowNumber, DAELIM_ADMIN_ACCOUNT_COL.ROLE).setValue("master");
     sheet.getRange(rowNumber, DAELIM_ADMIN_ACCOUNT_COL.ENABLED).setValue("승인");
-    sheet.getRange(rowNumber, DAELIM_ADMIN_ACCOUNT_COL.PASSWORD_STATUS).setValue("정상");
+
+    if (!adminUserText_(row[DAELIM_ADMIN_ACCOUNT_COL.PASSWORD - 1])) {
+      sheet.getRange(rowNumber, DAELIM_ADMIN_ACCOUNT_COL.PASSWORD).setValue(DAELIM_DEFAULT_MASTER_PASSWORD);
+    }
+
+    if (!adminUserText_(row[DAELIM_ADMIN_ACCOUNT_COL.PASSWORD_STATUS - 1])) {
+      sheet.getRange(rowNumber, DAELIM_ADMIN_ACCOUNT_COL.PASSWORD_STATUS).setValue("임시");
+    }
 
     return;
   }
@@ -99,7 +160,7 @@ function ensureDefaultMasterAccount_() {
     DAELIM_DEFAULT_MASTER_PASSWORD,
     "master",
     "승인",
-    "정상"
+    "임시"
   ]);
 }
 
@@ -142,7 +203,7 @@ function verifyAdminUserCredentials_(loginName, loginPassword) {
       };
     }
 
-    if (password !== loginPassword) {
+    if (!adminPasswordMatches_(password, loginPassword)) {
       return {
         success: false,
         message: "이름 또는 비밀번호가 일치하지 않습니다."
@@ -159,6 +220,7 @@ function verifyAdminUserCredentials_(loginName, loginPassword) {
       phone: adminUserText_(row[DAELIM_ADMIN_ACCOUNT_COL.PHONE - 1]),
       role: adminUserText_(row[DAELIM_ADMIN_ACCOUNT_COL.ROLE - 1]) || "viewer",
       passwordStatus: adminUserText_(row[DAELIM_ADMIN_ACCOUNT_COL.PASSWORD_STATUS - 1]) || "정상",
+      mustChangePassword: adminMustChangePassword_(row[DAELIM_ADMIN_ACCOUNT_COL.PASSWORD_STATUS - 1], password),
       loginTime: new Date(),
       message: "인증 성공"
     };
@@ -263,14 +325,21 @@ function adminChangePassword(body) {
 
     if (adminUserText_(row[DAELIM_ADMIN_ACCOUNT_COL.NAME - 1]) !== name) continue;
 
-    if (adminUserText_(row[DAELIM_ADMIN_ACCOUNT_COL.PASSWORD - 1]) !== currentPassword) {
+    if (!adminPasswordMatches_(row[DAELIM_ADMIN_ACCOUNT_COL.PASSWORD - 1], currentPassword)) {
       return {
         success: false,
         message: "현재 비밀번호가 일치하지 않습니다."
       };
     }
 
-    sheet.getRange(i + 1, DAELIM_ADMIN_ACCOUNT_COL.PASSWORD).setValue(nextPassword);
+    if (nextPassword === "0000") {
+      return {
+        success: false,
+        message: "0000은 임시비밀번호라 사용할 수 없습니다."
+      };
+    }
+
+    sheet.getRange(i + 1, DAELIM_ADMIN_ACCOUNT_COL.PASSWORD).setValue(adminHashPassword_(nextPassword));
     sheet.getRange(i + 1, DAELIM_ADMIN_ACCOUNT_COL.PASSWORD_STATUS).setValue("정상");
 
     return {
