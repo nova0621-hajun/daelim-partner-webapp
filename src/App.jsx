@@ -190,6 +190,10 @@ export default function PartnerInstallerPortal() {
   const [loginPw, setLoginPw] = useState("");
   const [loginMessage, setLoginMessage] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
+  const [passwordChangeMessage, setPasswordChangeMessage] = useState("");
+  const [passwordChanging, setPasswordChanging] = useState(false);
+  const [nextPassword, setNextPassword] = useState("");
+  const [nextPasswordConfirm, setNextPasswordConfirm] = useState("");
   const [user, setUser] = useState(null);
   const [jobs, setJobs] = useState([]);
   const [engineerOptions, setEngineerOptions] = useState([]);
@@ -365,64 +369,139 @@ export default function PartnerInstallerPortal() {
   }, []);
 
   const handleLogin = async () => {
-    if (loginLoading) return;
+  if (loginLoading) return;
 
-    const trimmedId = loginId.trim();
-    const trimmedPw = loginPw.trim();
+  const trimmedId = loginId.trim();
+  const trimmedPw = loginPw.trim();
 
-    if (!trimmedId || !trimmedPw) {
-      setLoginMessage("아이디와 비밀번호를 입력해 주세요.");
+  if (!trimmedId || !trimmedPw) {
+    setLoginMessage("아이디와 비밀번호를 입력해 주세요.");
+    return;
+  }
+
+  setLoginMessage("로그인 확인 중입니다.");
+  setLoginLoading(true);
+
+  try {
+    const result = await apiPost({
+      action: "partnerLogin",
+      id: trimmedId,
+      password: trimmedPw,
+    });
+
+    if (!result.success) {
+      setLoginMessage(result.message || "아이디 또는 비밀번호를 확인해 주세요.");
       return;
     }
 
-    setLoginMessage("로그인 확인 중입니다.");
-    setLoginLoading(true);
+    const loginUser = {
+      id: result.id || trimmedId,
+      loginId: result.loginId || result.id || trimmedId,
+      name: result.name || result.partnerName || result.engineerName || trimmedId,
+      role: result.role || "",
+      partnerName: result.partnerName || result.partner || "",
+      engineerName: result.engineerName || result.engineer || "",
+      engineerPhone: result.engineerPhone || result.phone || "",
+      passwordStatus: result.passwordStatus || "",
+      mustChangePassword: result.mustChangePassword === true,
+      currentPassword: trimmedPw,
+    };
 
-    try {
-      const result = await apiPost({
-        action: "partnerLogin",
-        id: trimmedId,
-        password: trimmedPw,
-      });
-
-      if (!result.success) {
-        setLoginMessage(result.message || "아이디 또는 비밀번호를 확인해 주세요.");
-        return;
-      }
-
-      const loginUser = {
-        id: result.id || trimmedId,
-        name: result.name || result.partnerName || result.engineerName || trimmedId,
-        role: result.role || "",
-        partnerName: result.partnerName || result.partner || "",
-        engineerName: result.engineerName || result.engineer || "",
-        engineerPhone: result.engineerPhone || result.phone || "",
-      };
-
-      if (!loginUser.role) {
-        setLoginMessage("계정 권한 정보를 확인할 수 없습니다.");
-        return;
-      }
-
-      const [rows, engineers] = await Promise.all([
-        fetchPartnerJobs(loginUser),
-        fetchEngineerOptions(loginUser),
-      ]);
-
-      setUser(loginUser);
-      setJobs(rows);
-      setEngineerOptions(engineers);
-      window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(loginUser));
-      setActiveTab("today");
-      setScreen("portal");
-      setLoginMessage("");
-    } catch (err) {
-      console.error(err);
-      setLoginMessage(err.message || "로그인 API 연결 실패");
-    } finally {
-      setLoginLoading(false);
+    if (!loginUser.role) {
+      setLoginMessage("계정 권한 정보를 확인할 수 없습니다.");
+      return;
     }
-  };
+
+    setUser(loginUser);
+    setLoginMessage("");
+
+    if (loginUser.mustChangePassword) {
+      setScreen("passwordChange");
+      return;
+    }
+
+    const [rows, engineers] = await Promise.all([
+      fetchPartnerJobs(loginUser),
+      fetchEngineerOptions(loginUser),
+    ]);
+
+    setJobs(rows);
+    setEngineerOptions(engineers);
+    window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(loginUser));
+    setActiveTab("today");
+    setScreen("portal");
+  } catch (err) {
+    console.error(err);
+    setLoginMessage(err.message || "로그인 API 연결 실패");
+  } finally {
+    setLoginLoading(false);
+  }
+};
+
+  const handlePartnerPasswordChange = async () => {
+  if (passwordChanging || !user) return;
+
+  setPasswordChangeMessage("");
+
+  if (!/^[0-9]{4}$/.test(nextPassword) || !/^[0-9]{4}$/.test(nextPasswordConfirm)) {
+    setPasswordChangeMessage("새 비밀번호는 숫자 4자리로 입력해 주세요.");
+    return;
+  }
+
+  if (nextPassword === "0000") {
+    setPasswordChangeMessage("0000은 임시비밀번호라 사용할 수 없습니다.");
+    return;
+  }
+
+  if (nextPassword !== nextPasswordConfirm) {
+    setPasswordChangeMessage("새 비밀번호가 서로 일치하지 않습니다.");
+    return;
+  }
+
+  try {
+    setPasswordChanging(true);
+
+    const result = await apiPost({
+      action: "partnerChangePassword",
+      id: user.loginId || user.id,
+      currentPassword: user.currentPassword || loginPw,
+      nextPassword,
+    });
+
+    if (!result.success) {
+      setPasswordChangeMessage(result.message || "비밀번호 변경에 실패했습니다.");
+      return;
+    }
+
+    const nextUser = {
+      ...user,
+      passwordStatus: "정상",
+      mustChangePassword: false,
+      currentPassword: nextPassword,
+    };
+
+    const [rows, engineers] = await Promise.all([
+      fetchPartnerJobs(nextUser),
+      fetchEngineerOptions(nextUser),
+    ]);
+
+    setUser(nextUser);
+    setJobs(rows);
+    setEngineerOptions(engineers);
+    window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(nextUser));
+
+    setNextPassword("");
+    setNextPasswordConfirm("");
+    setPasswordChangeMessage("");
+    setActiveTab("today");
+    setScreen("portal");
+  } catch (err) {
+    console.error(err);
+    setPasswordChangeMessage(err.message || "비밀번호 변경 API 연결 실패");
+  } finally {
+    setPasswordChanging(false);
+  }
+};
 
   const handleLogout = () => {
     window.localStorage.removeItem(SESSION_STORAGE_KEY);
@@ -761,6 +840,22 @@ export default function PartnerInstallerPortal() {
     setHistoryJob(job);
   };
 
+  if (screen === "passwordChange") {
+  return (
+    <PasswordChangeForm
+      user={user}
+      nextPassword={nextPassword}
+      nextPasswordConfirm={nextPasswordConfirm}
+      setNextPassword={setNextPassword}
+      setNextPasswordConfirm={setNextPasswordConfirm}
+      message={passwordChangeMessage}
+      loading={passwordChanging}
+      onSubmit={handlePartnerPasswordChange}
+      onLogout={handleLogout}
+    />
+  );
+}
+
   if (screen === "login") {
     if (restoringSession) {
       return (
@@ -916,6 +1011,97 @@ function LoginForm({ id, password, setId, setPassword, message, loading = false,
         <button onClick={onSubmit} disabled={loading} className="mt-6 flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-4 text-sm font-black text-white disabled:bg-slate-300">
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />} {loading ? "확인 중" : "로그인"}
         </button>
+      </div>
+    </main>
+  );
+}
+
+function PasswordChangeForm({
+  user,
+  nextPassword,
+  nextPasswordConfirm,
+  setNextPassword,
+  setNextPasswordConfirm,
+  message,
+  loading = false,
+  onSubmit,
+  onLogout,
+}) {
+  const submitOnEnter = (event) => {
+    if (event.key !== "Enter") return;
+    onSubmit();
+  };
+
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-slate-50 p-5">
+      <div className="w-full max-w-md rounded-[2rem] bg-white p-6 shadow-xl">
+        <div className="flex items-center gap-3">
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-900 text-white">
+            <Lock className="h-6 w-6" />
+          </div>
+          <div>
+            <p className="text-xs font-black text-slate-400">DAELIM BATH & KITCHEN</p>
+            <h1 className="text-2xl font-black">비밀번호 변경</h1>
+            <p className="mt-1 text-xs font-bold text-slate-500">
+              {user?.name || "사용자"}님, 최초 로그인 후 비밀번호 변경이 필요합니다.
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-6 space-y-4">
+          <div>
+            <FieldLabel>새 비밀번호</FieldLabel>
+            <input
+              type="password"
+              value={nextPassword}
+              onKeyDown={submitOnEnter}
+              onChange={(e) => setNextPassword(e.target.value)}
+              disabled={loading}
+              maxLength={4}
+              placeholder="숫자 4자리"
+              className="w-full rounded-2xl border px-4 py-3 text-base font-bold disabled:opacity-60"
+            />
+          </div>
+
+          <div>
+            <FieldLabel>새 비밀번호 확인</FieldLabel>
+            <input
+              type="password"
+              value={nextPasswordConfirm}
+              onKeyDown={submitOnEnter}
+              onChange={(e) => setNextPasswordConfirm(e.target.value)}
+              disabled={loading}
+              maxLength={4}
+              placeholder="숫자 4자리 재입력"
+              className="w-full rounded-2xl border px-4 py-3 text-base font-bold disabled:opacity-60"
+            />
+          </div>
+        </div>
+
+        {message ? (
+          <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm font-bold text-rose-700">
+            {message}
+          </div>
+        ) : null}
+
+        <div className="mt-6 grid grid-cols-2 gap-2">
+          <button
+            onClick={onLogout}
+            disabled={loading}
+            className="rounded-2xl border px-4 py-4 text-sm font-black text-slate-600 disabled:opacity-50"
+          >
+            로그아웃
+          </button>
+
+          <button
+            onClick={onSubmit}
+            disabled={loading}
+            className="flex items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-4 text-sm font-black text-white disabled:bg-slate-300"
+          >
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />}
+            {loading ? "변경 중" : "변경하기"}
+          </button>
+        </div>
       </div>
     </main>
   );
