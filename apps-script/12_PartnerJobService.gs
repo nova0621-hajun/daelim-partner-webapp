@@ -725,9 +725,9 @@ function findEngineerPhone_(partnerName, engineerName) {
     const rowPartnerName = String(row[0] || "").trim();
     const rowEngineerName = String(row[1] || "").trim();
     const rowEngineerPhone = String(row[2] || "").trim();
-    const enabled = String(row[9] || "").trim().toUpperCase();
+    const enabled = String(row[6] || "").trim();
 
-    if (enabled !== "Y") continue;
+    if (enabled && enabled !== "승인" && enabled.toUpperCase() !== "Y") continue;
 
     if (
       rowPartnerName === partnerName &&

@@ -7,18 +7,14 @@ const PARTNER_ACCOUNT_SHEET_NAME = "협력사데이터";
 const PARTNER_ACCOUNT_REQUEST_SHEET_NAME = "PARTNER_ACCOUNT_REQUESTS";
 
 const PARTNER_ACCOUNT_COL = {
-  PARTNER_NAME: 1,        // A 협력사명
-  NAME: 2,                // B 이름
+  PARTNER_NAME: 1,        // A 대리점명
+  NAME: 2,                // B 기사명
   PHONE: 3,               // C 연락처
   BIZ_NO: 4,              // D 사업자번호
   PASSWORD: 5,            // E 비밀번호
   ROLE: 6,                // F 권한 partner / engineer
-  LOGIN_ID: 7,            // G 로그인ID
-  ENABLED: 8,             // H 사용여부 승인 / 중지
-  PASSWORD_STATUS: 9,     // I 비밀번호상태 임시 / 정상
-  LAST_LOGIN_AT: 10,      // J 마지막로그인일시
-  CREATED_BY: 11,         // K 생성자
-  CREATED_AT: 12          // L 생성일시
+  ENABLED: 7,             // G 사용여부 승인 / 중지
+  PASSWORD_STATUS: 8      // H 비밀번호상태 임시 / 정상
 };
 
 const PARTNER_ACCOUNT_REQUEST_COL = {
@@ -117,12 +113,9 @@ function rowToPartnerAccount_(values, rowNumber) {
     bizNo: String(values[PARTNER_ACCOUNT_COL.BIZ_NO - 1] || "").trim(),
     password: String(values[PARTNER_ACCOUNT_COL.PASSWORD - 1] || "").trim(),
     role: String(values[PARTNER_ACCOUNT_COL.ROLE - 1] || "").trim(),
-    loginId: String(values[PARTNER_ACCOUNT_COL.LOGIN_ID - 1] || "").trim(),
+    loginId: String(values[PARTNER_ACCOUNT_COL.NAME - 1] || "").trim(),
     enabled: String(values[PARTNER_ACCOUNT_COL.ENABLED - 1] || "").trim(),
-    passwordStatus: String(values[PARTNER_ACCOUNT_COL.PASSWORD_STATUS - 1] || "").trim(),
-    lastLoginAt: values[PARTNER_ACCOUNT_COL.LAST_LOGIN_AT - 1],
-    createdBy: String(values[PARTNER_ACCOUNT_COL.CREATED_BY - 1] || "").trim(),
-    createdAt: values[PARTNER_ACCOUNT_COL.CREATED_AT - 1]
+    passwordStatus: String(values[PARTNER_ACCOUNT_COL.PASSWORD_STATUS - 1] || "").trim()
   };
 }
 
@@ -296,14 +289,10 @@ function partnerLogin(body) {
     };
   }
 
-  const sheet = getPartnerAccountSheet_();
-
-  sheet
-    .getRange(account.rowNumber, PARTNER_ACCOUNT_COL.LAST_LOGIN_AT)
-    .setValue(new Date());
-
   const mustChangePassword =
     account.passwordStatus === "임시" ||
+    !account.password ||
+    account.password === "0000" ||
     !isPartnerPasswordHash_(account.password);
 
   return {
@@ -418,10 +407,6 @@ function partnerChangePassword(body) {
   sheet
     .getRange(account.rowNumber, PARTNER_ACCOUNT_COL.PASSWORD_STATUS)
     .setValue("정상");
-
-  sheet
-    .getRange(account.rowNumber, PARTNER_ACCOUNT_COL.LAST_LOGIN_AT)
-    .setValue(new Date());
 
   return {
     success: true,
@@ -624,12 +609,8 @@ function updatePartnerEngineerAccountRequest(body) {
       "",
       "0000",
       "engineer",
-      loginId,
       "승인",
-      "임시",
-      "",
-      auth.name,
-      new Date()
+      "임시"
     ]);
   }
 
@@ -674,7 +655,7 @@ function getPartnerAccountsForMaster(body) {
   const rows = [];
 
   if (lastRow >= 2) {
-    const values = sheet.getRange(2, 1, lastRow - 1, PARTNER_ACCOUNT_COL.CREATED_AT).getValues();
+    const values = sheet.getRange(2, 1, lastRow - 1, PARTNER_ACCOUNT_COL.PASSWORD_STATUS).getValues();
 
     values.forEach(function(row, index) {
       const account = rowToPartnerAccount_(row, index + 2);
@@ -741,12 +722,6 @@ function updatePartnerAccountForMaster(body) {
     sheet.getRange(rowNumber, PARTNER_ACCOUNT_COL.ENABLED).setValue(enabled);
   }
 
-  const loginId = String(body.loginId || body.name || "").trim();
-
-  if (loginId) {
-    sheet.getRange(rowNumber, PARTNER_ACCOUNT_COL.LOGIN_ID).setValue(loginId);
-  }
-
   const savedPassword = String(sheet.getRange(rowNumber, PARTNER_ACCOUNT_COL.PASSWORD).getDisplayValue() || "").trim();
 
   if (!savedPassword) {
@@ -756,7 +731,7 @@ function updatePartnerAccountForMaster(body) {
 
   SpreadsheetApp.flush();
 
-  const row = sheet.getRange(rowNumber, 1, 1, PARTNER_ACCOUNT_COL.CREATED_AT).getValues()[0];
+  const row = sheet.getRange(rowNumber, 1, 1, PARTNER_ACCOUNT_COL.PASSWORD_STATUS).getValues()[0];
   const account = rowToPartnerAccount_(row, rowNumber);
   account.loginId = account.loginId || account.name;
   account.passwordStatus =
@@ -768,5 +743,69 @@ function updatePartnerAccountForMaster(body) {
     success: true,
     account: account,
     message: "협력사 포털 계정 정보가 저장되었습니다."
+  };
+}
+
+/**
+ * 협력사 / 시공기사 드롭다운 데이터 조회
+ *
+ * 협력사데이터 시트 기준:
+ * A 대리점명, B 기사명, C 연락처, F 권한, G 사용여부
+ *
+ * @returns {Object} 협력사 / 기사 목록
+ */
+function getPartnerInstallerData_() {
+  const sheet = getPartnerAccountSheet_();
+  const lastRow = sheet.getLastRow();
+  const partners = [];
+  const installersByPartner = {};
+  const phoneByInstaller = {};
+
+  if (lastRow < 2) {
+    return {
+      success: true,
+      partners: partners,
+      installersByPartner: installersByPartner,
+      phoneByInstaller: phoneByInstaller
+    };
+  }
+
+  const values = sheet.getRange(2, 1, lastRow - 1, PARTNER_ACCOUNT_COL.PASSWORD_STATUS).getValues();
+
+  values.forEach(function(row) {
+    const account = rowToPartnerAccount_(row, 0);
+    const enabled = account.enabled || "";
+
+    if (enabled && enabled !== "승인" && enabled.toUpperCase() !== "Y") return;
+    if (!account.partnerName) return;
+
+    if (partners.indexOf(account.partnerName) === -1) {
+      partners.push(account.partnerName);
+    }
+
+    if (!installersByPartner[account.partnerName]) {
+      installersByPartner[account.partnerName] = [];
+    }
+
+    if (
+      account.name &&
+      account.role !== "partner" &&
+      installersByPartner[account.partnerName].indexOf(account.name) === -1
+    ) {
+      installersByPartner[account.partnerName].push(account.name);
+      phoneByInstaller[account.name] = account.phone || "";
+    }
+  });
+
+  partners.sort();
+  Object.keys(installersByPartner).forEach(function(partnerName) {
+    installersByPartner[partnerName].sort();
+  });
+
+  return {
+    success: true,
+    partners: partners,
+    installersByPartner: installersByPartner,
+    phoneByInstaller: phoneByInstaller
   };
 }
