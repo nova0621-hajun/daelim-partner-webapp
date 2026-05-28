@@ -238,15 +238,27 @@ function verifyPartnerRequester_(body) {
   return account;
 }
 
-function partnerLogin(body) {
+function partnerLogin(body, legacyPassword) {
+  const payload =
+    body && typeof body === "object"
+      ? body
+      : {
+          id: body,
+          password: legacyPassword
+        };
+
   const loginId = String(
-    body.id ||
-    body.loginId ||
+    payload.id ||
+    payload.loginId ||
+    payload.name ||
     ""
   ).trim();
 
   const password = String(
-    body.password || ""
+    payload.password ||
+    payload.pw ||
+    payload.loginPw ||
+    ""
   ).trim();
 
   if (!loginId || !password) {
