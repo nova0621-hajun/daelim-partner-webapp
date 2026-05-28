@@ -258,6 +258,9 @@ export default function PartnerInstallerPortal() {
   const [refreshing, setRefreshing] = useState(false);
   const [actionMessage, setActionMessage] = useState("");
   const [copiedAddressJobId, setCopiedAddressJobId] = useState("");
+  const [engineerRequestForm, setEngineerRequestForm] = useState({ name: "", phone: "" });
+  const [engineerRequestLoading, setEngineerRequestLoading] = useState(false);
+  const [engineerRequestMessage, setEngineerRequestMessage] = useState("");
   const listRef = useRef(null);
 
   useEffect(() => {
@@ -569,6 +572,43 @@ export default function PartnerInstallerPortal() {
     setUploadJob(null);
     setHistoryJob(null);
     setEngineerOptions([]);
+  };
+
+  const submitEngineerAccountRequest = async () => {
+    if (!user || user.role !== "partner" || engineerRequestLoading) return;
+
+    const engineerName = engineerRequestForm.name.trim();
+    const phone = engineerRequestForm.phone.trim();
+
+    setEngineerRequestMessage("");
+
+    if (!engineerName || !/^[0-9-]{10,13}$/.test(phone)) {
+      setEngineerRequestMessage("기사명과 연락처를 입력해 주세요.");
+      return;
+    }
+
+    try {
+      setEngineerRequestLoading(true);
+      const result = await apiPost({
+        action: "requestPartnerEngineerAccount",
+        loginId: user.loginId || user.id,
+        password: partnerAuthPassword,
+        engineerName,
+        phone,
+      });
+
+      if (!result.success) {
+        setEngineerRequestMessage(result.message || "기사 계정 생성 요청에 실패했습니다.");
+        return;
+      }
+
+      setEngineerRequestForm({ name: "", phone: "" });
+      setEngineerRequestMessage(result.message || "기사 계정 생성 요청이 등록되었습니다.");
+    } catch (error) {
+      setEngineerRequestMessage(error?.message || "기사 계정 생성 요청 API 연결에 실패했습니다.");
+    } finally {
+      setEngineerRequestLoading(false);
+    }
   };
 
   const refreshJobs = async (message = "현장 목록을 새로고침했습니다.") => {
@@ -943,6 +983,15 @@ export default function PartnerInstallerPortal() {
     <div className="min-h-screen bg-slate-50 p-3 text-slate-900 md:p-6">
       <div className="mx-auto max-w-5xl space-y-4">
         <PortalHeader user={user} onLogout={handleLogout} />
+        {user.role === "partner" ? (
+          <EngineerAccountRequestPanel
+            form={engineerRequestForm}
+            setForm={setEngineerRequestForm}
+            loading={engineerRequestLoading}
+            message={engineerRequestMessage}
+            onSubmit={submitEngineerAccountRequest}
+          />
+        ) : null}
         <StatGrid user={user} stats={stats} setActiveTab={selectTab} />
         <TabBar user={user} activeTab={activeTab} setActiveTab={selectTab} />
 
@@ -1071,6 +1120,66 @@ function LoginForm({ id, password, setId, setPassword, message, loading = false,
         </button>
       </div>
     </main>
+  );
+}
+
+function EngineerAccountRequestPanel({ form, setForm, loading = false, message = "", onSubmit }) {
+  const update = (key, value) => {
+    setForm((prev) => ({
+      ...prev,
+      [key]: key === "phone" ? formatPhone(value) : value,
+    }));
+  };
+
+  return (
+    <section className="rounded-3xl border bg-white p-4 shadow-sm md:p-5">
+      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+        <div>
+          <p className="text-xs font-black text-slate-400">ENGINEER ACCOUNT</p>
+          <h2 className="mt-1 text-lg font-black text-slate-900">시공기사 계정 생성 요청</h2>
+          <p className="mt-1 text-xs font-bold text-slate-500">master 승인 후 기사 로그인ID가 생성됩니다.</p>
+        </div>
+        <button
+          type="button"
+          onClick={onSubmit}
+          disabled={loading}
+          className="flex items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-black text-white disabled:bg-slate-300"
+        >
+          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Users className="h-4 w-4" />}
+          {loading ? "요청 중" : "요청 보내기"}
+        </button>
+      </div>
+
+      <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+        <div>
+          <FieldLabel>기사명</FieldLabel>
+          <input
+            value={form.name}
+            onChange={(event) => update("name", event.target.value)}
+            disabled={loading}
+            className="w-full rounded-2xl border px-4 py-3 text-base font-bold disabled:opacity-60"
+            placeholder="예: 김대림"
+          />
+        </div>
+        <div>
+          <FieldLabel>연락처</FieldLabel>
+          <input
+            value={form.phone}
+            onChange={(event) => update("phone", event.target.value)}
+            disabled={loading}
+            inputMode="tel"
+            className="w-full rounded-2xl border px-4 py-3 text-base font-bold disabled:opacity-60"
+            placeholder="010-0000-0000"
+          />
+        </div>
+      </div>
+
+      {message ? (
+        <div className="mt-4 rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-xs font-bold text-blue-800">
+          {message}
+        </div>
+      ) : null}
+    </section>
   );
 }
 
