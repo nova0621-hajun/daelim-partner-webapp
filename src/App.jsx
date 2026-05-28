@@ -19,6 +19,53 @@ import {
 const WEBAPP_URL =
   "https://script.google.com/macros/s/AKfycbzunWIU75WOPAnZLS9MGqgLLJ9-P4P1f59gNpggLcWcEGs_P0NArHOLdKNwwPQGekMewg/exec";
 const SESSION_STORAGE_KEY = "daelimPartnerPortalUser";
+const SESSION_TTL = 1000 * 60 * 60 * 8;
+
+function readPartnerSession() {
+  try {
+    const raw = window.sessionStorage.getItem(SESSION_STORAGE_KEY) || window.localStorage.getItem(SESSION_STORAGE_KEY);
+    if (!raw) return null;
+
+    const parsed = JSON.parse(raw);
+    const savedAt = parsed.savedAt || 0;
+    const user = parsed.user || parsed;
+
+    if (!user?.role || !user?.name) return null;
+
+    if (savedAt && Date.now() - savedAt > SESSION_TTL) {
+      window.sessionStorage.removeItem(SESSION_STORAGE_KEY);
+      window.localStorage.removeItem(SESSION_STORAGE_KEY);
+      return null;
+    }
+
+    return {
+      user,
+      authPassword: parsed.authPassword || user.currentPassword || "",
+    };
+  } catch (err) {
+    return null;
+  }
+}
+
+function writePartnerSession(user, authPassword) {
+  try {
+    const cleanUser = { ...user };
+    delete cleanUser.currentPassword;
+    window.sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({
+      savedAt: Date.now(),
+      user: cleanUser,
+      authPassword,
+    }));
+    window.localStorage.removeItem(SESSION_STORAGE_KEY);
+  } catch (err) {}
+}
+
+function clearPartnerSession() {
+  try {
+    window.sessionStorage.removeItem(SESSION_STORAGE_KEY);
+    window.localStorage.removeItem(SESSION_STORAGE_KEY);
+  } catch (err) {}
+}
 
 const STATUS_CLASS = {
   엔지니어배정요청: "border-amber-200 bg-amber-50 text-amber-700",
@@ -195,6 +242,7 @@ export default function PartnerInstallerPortal() {
   const [nextPassword, setNextPassword] = useState("");
   const [nextPasswordConfirm, setNextPasswordConfirm] = useState("");
   const [user, setUser] = useState(null);
+  const [partnerAuthPassword, setPartnerAuthPassword] = useState("");
   const [jobs, setJobs] = useState([]);
   const [engineerOptions, setEngineerOptions] = useState([]);
   const [restoringSession, setRestoringSession] = useState(true);
@@ -335,11 +383,10 @@ export default function PartnerInstallerPortal() {
 
     const restoreSession = async () => {
       try {
-        const saved = window.localStorage.getItem(SESSION_STORAGE_KEY);
-        if (!saved) return;
+        const savedSession = readPartnerSession();
+        if (!savedSession?.user) return;
 
-        const savedUser = JSON.parse(saved);
-        if (!savedUser?.role || !savedUser?.name) return;
+        const savedUser = savedSession.user;
 
         const [rows, engineers] = await Promise.all([
           fetchPartnerJobs(savedUser, { silent: true }),
@@ -349,13 +396,15 @@ export default function PartnerInstallerPortal() {
         if (cancelled) return;
 
         setUser(savedUser);
+        setPartnerAuthPassword(savedSession.authPassword || "");
+        writePartnerSession(savedUser, savedSession.authPassword || "");
         setJobs(rows);
         setEngineerOptions(engineers);
-        setScreen("portal");
+        setScreen(savedUser.mustChangePassword ? "passwordChange" : "portal");
         setActiveTab("today");
       } catch (err) {
         console.error(err);
-        window.localStorage.removeItem(SESSION_STORAGE_KEY);
+        clearPartnerSession();
       } finally {
         if (!cancelled) setRestoringSession(false);
       }
@@ -404,7 +453,6 @@ export default function PartnerInstallerPortal() {
       engineerPhone: result.engineerPhone || result.phone || "",
       passwordStatus: result.passwordStatus || "",
       mustChangePassword: result.mustChangePassword === true,
-      currentPassword: trimmedPw,
     };
 
     if (!loginUser.role) {
@@ -413,9 +461,11 @@ export default function PartnerInstallerPortal() {
     }
 
     setUser(loginUser);
+    setPartnerAuthPassword(trimmedPw);
     setLoginMessage("");
 
     if (loginUser.mustChangePassword) {
+      writePartnerSession(loginUser, trimmedPw);
       setScreen("passwordChange");
       return;
     }
@@ -427,7 +477,8 @@ export default function PartnerInstallerPortal() {
 
     setJobs(rows);
     setEngineerOptions(engineers);
-    window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(loginUser));
+    writePartnerSession(loginUser, trimmedPw);
+    setLoginPw("");
     setActiveTab("today");
     setScreen("portal");
   } catch (err) {
@@ -464,7 +515,7 @@ export default function PartnerInstallerPortal() {
     const result = await apiPost({
       action: "partnerChangePassword",
       id: user.loginId || user.id,
-      currentPassword: user.currentPassword || loginPw,
+      currentPassword: partnerAuthPassword || loginPw,
       nextPassword,
     });
 
@@ -477,7 +528,6 @@ export default function PartnerInstallerPortal() {
       ...user,
       passwordStatus: "정상",
       mustChangePassword: false,
-      currentPassword: nextPassword,
     };
 
     const [rows, engineers] = await Promise.all([
@@ -486,12 +536,14 @@ export default function PartnerInstallerPortal() {
     ]);
 
     setUser(nextUser);
+    setPartnerAuthPassword(nextPassword);
     setJobs(rows);
     setEngineerOptions(engineers);
-    window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(nextUser));
+    writePartnerSession(nextUser, nextPassword);
 
     setNextPassword("");
     setNextPasswordConfirm("");
+    setLoginPw("");
     setPasswordChangeMessage("");
     setActiveTab("today");
     setScreen("portal");
@@ -504,8 +556,14 @@ export default function PartnerInstallerPortal() {
 };
 
   const handleLogout = () => {
-    window.localStorage.removeItem(SESSION_STORAGE_KEY);
+    clearPartnerSession();
     setUser(null);
+    setPartnerAuthPassword("");
+    setLoginPw("");
+    setLoginMessage("");
+    setPasswordChangeMessage("");
+    setNextPassword("");
+    setNextPasswordConfirm("");
     setScreen("login");
     setDetailJob(null);
     setUploadJob(null);

@@ -77,7 +77,10 @@ function doPost(e) {
     switch (action) {
 
       case "partnerLogin":
-        return jsonOutput(partnerLogin(body.id, body.password));
+        return jsonOutput(partnerLogin(body));
+
+      case "partnerChangePassword":
+        return jsonOutput(partnerChangePassword(body));
 
       case "adminLogin":
         return jsonOutput(adminLogin(body));
