@@ -216,7 +216,10 @@ function verifyPartnerRequester_(body) {
   if (account.enabled !== "승인") {
     return {
       success: false,
-      message: "승인된 협력사 계정만 요청할 수 있습니다."
+      message:
+        account.enabled === "중지"
+          ? "중지된 협력사 계정입니다. master에게 문의해 주세요."
+          : "승인된 협력사 계정만 요청할 수 있습니다."
     };
   }
 
@@ -280,7 +283,10 @@ function partnerLogin(body, legacyPassword) {
   if (account.enabled !== "승인") {
     return {
       success: false,
-      message: "사용 승인되지 않은 계정입니다."
+      message:
+        account.enabled === "중지"
+          ? "중지된 계정입니다. master에게 문의해 주세요."
+          : "사용 승인되지 않은 계정입니다."
     };
   }
 
@@ -399,7 +405,10 @@ function partnerChangePassword(body) {
   if (account.enabled !== "승인") {
     return {
       success: false,
-      message: "사용 승인되지 않은 계정입니다."
+      message:
+        account.enabled === "중지"
+          ? "중지된 계정입니다. master에게 문의해 주세요."
+          : "사용 승인되지 않은 계정입니다."
     };
   }
 
