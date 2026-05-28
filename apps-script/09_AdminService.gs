@@ -4,26 +4,9 @@
  ***************************************/
 
 /**
- * 마스터 비밀번호 확인
- *
- * 기존 MASTER_PASSWORD 방식과 호환하기 위해 유지합니다.
- *
- * @param {Object} e GET 요청 이벤트
- * @returns {Object} 확인 결과
- */
-function checkAdminPassword(e) {
-  const password = e.parameter.masterPassword || "";
-
-  return {
-    success: password === MASTER_PASSWORD
-  };
-}
-
-/**
  * 마스터 계정 작업 권한 확인
  *
- * 우선 시공관리 계정 인증을 확인하고,
- * 기존 MASTER_PASSWORD 방식도 호환합니다.
+ * 시공관리 master 계정 인증만 허용합니다.
  *
  * @param {Object} body 요청 데이터
  * @returns {Object} 확인 결과
@@ -31,7 +14,6 @@ function checkAdminPassword(e) {
 function verifyAdminOperation_(body) {
   const userName = String(body.userName || "").trim();
   const userPassword = String(body.userPassword || "").trim();
-  const masterPassword = String(body.masterPassword || "").trim();
 
   if (userName && userPassword && typeof verifyAdminUserCredentials_ === "function") {
     const userAuth = verifyAdminUserCredentials_(userName, userPassword);
@@ -43,13 +25,6 @@ function verifyAdminOperation_(body) {
         user: userAuth
       };
     }
-  }
-
-  if (masterPassword && masterPassword === MASTER_PASSWORD) {
-    return {
-      success: true,
-      method: "masterPassword"
-    };
   }
 
   return {
@@ -76,17 +51,50 @@ function setEditLock(body) {
   if (!auth.success) throw new Error(auth.message);
 
   const sheet = getMonthlySheet(month);
+  const lockCell = sheet.getRange(row, COL.EDIT_LOCKED);
 
-  sheet
-    .getRange(row, COL.EDIT_LOCKED)
-    .setValue(locked ? "Y" : "");
+  if (locked) {
+    lockCell.setValue("Y");
+  } else {
+    lockCell.clearContent();
+  }
+
+  const job = rowToJob(
+    sheet.getRange(row, 1, 1, sheet.getLastColumn()).getValues()[0],
+    row
+  );
+
+  if (typeof writeHistoryLog === "function") {
+    writeHistoryLog({
+      month: month,
+      rowNumber: row,
+      customer: job.customer,
+      actionType: locked ? "현장잠금" : "현장잠금해제",
+      fieldName: "관리자잠금",
+      beforeValue: locked ? "" : "Y",
+      afterValue: locked ? "Y" : "",
+      actor: auth.user && auth.user.name ? auth.user.name : "master"
+    });
+  }
+
+  if (typeof createNotification_ === "function") {
+    createNotification_({
+      targetName: job.manager,
+      targetRole: "master",
+      title: locked ? "현장 잠금" : "현장 잠금해제",
+      content: job.customer + " 현장의 잠금 상태가 변경되었습니다.",
+      jobId: job.id || row,
+      type: locked ? "job_locked" : "job_unlocked"
+    });
+  }
 
   SpreadsheetApp.flush();
   clearMonthCache_(month);
 
   return {
     success: true,
-    locked: locked
+    locked: locked,
+    storedValue: lockCell.getDisplayValue()
   };
 }
 
@@ -103,25 +111,48 @@ function requestDelete(body) {
 
   if (!month) throw new Error("month 값이 없습니다.");
   if (!row) throw new Error("rowNumber 값이 없습니다.");
-  if (!password) throw new Error("수정 비밀번호가 없습니다.");
 
   const sheet = getMonthlySheet(month);
+  const job = rowToJob(
+    sheet.getRange(row, 1, 1, sheet.getLastColumn()).getValues()[0],
+    row
+  );
 
-  const savedHash = sheet
-    .getRange(row, COL.EDIT_PASSWORD_HASH)
-    .getDisplayValue();
+  const accountAuth = typeof verifyOrderAccountAccess_ === "function"
+    ? verifyOrderAccountAccess_(body, job)
+    : { success: false, message: "계정 권한 확인 함수를 찾을 수 없습니다." };
 
-  if (!savedHash) {
-    throw new Error("등록된 수정 비밀번호가 없습니다.");
-  }
+  if (!accountAuth.success) {
+    if (!password) {
+      throw new Error(accountAuth.message || "계정 권한 또는 수정 비밀번호가 필요합니다.");
+    }
 
-  if (savedHash !== hashPassword_(password)) {
-    throw new Error("수정 비밀번호 불일치");
+    const savedHash = sheet
+      .getRange(row, COL.EDIT_PASSWORD_HASH)
+      .getDisplayValue();
+
+    if (!savedHash) {
+      throw new Error("등록된 수정 비밀번호가 없습니다.");
+    }
+
+    if (savedHash !== hashPassword_(password)) {
+      throw new Error("수정 비밀번호 불일치");
+    }
   }
 
   sheet
     .getRange(row, COL.DELETE_REQUEST)
     .setValue("Y");
+
+  if (typeof createNotification_ === "function") {
+    createNotification_({
+      targetRole: "master",
+      title: "삭제요청 접수",
+      content: job.customer + " 현장의 삭제요청이 접수되었습니다.",
+      jobId: job.id || row,
+      type: "delete_request"
+    });
+  }
 
   SpreadsheetApp.flush();
   clearMonthCache_(month);
