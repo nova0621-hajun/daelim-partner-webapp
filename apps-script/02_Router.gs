@@ -79,6 +79,12 @@ function doPost(e) {
       case "partnerChangePassword":
         return jsonOutput(partnerChangePassword(body));
 
+      case "changePartnerPassword":
+        return jsonOutput(partnerChangePassword(body));
+
+      case "partnerPasswordChange":
+        return jsonOutput(partnerChangePassword(body));
+
       case "requestPartnerEngineerAccount":
         return jsonOutput(requestPartnerEngineerAccount(body));
 
