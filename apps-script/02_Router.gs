@@ -25,9 +25,6 @@ function doGet(e) {
       case "health":
         return jsonOutput({ success: true, message: "API 정상 연결" });
 
-      case "checkAdminPassword":
-        return jsonOutput(checkAdminPassword(e));
-
       case "months":
         return jsonOutput(getAvailableMonths());
 
@@ -77,7 +74,7 @@ function doPost(e) {
     switch (action) {
 
       case "partnerLogin":
-        return jsonOutput(partnerLogin(body));
+         return jsonOutput(partnerLogin(body));
 
       case "partnerChangePassword":
         return jsonOutput(partnerChangePassword(body));
@@ -90,6 +87,12 @@ function doPost(e) {
 
       case "updatePartnerEngineerAccountRequest":
         return jsonOutput(updatePartnerEngineerAccountRequest(body));
+
+      case "partnerAccountsForMaster":
+        return jsonOutput(getPartnerAccountsForMaster(body));
+
+      case "updatePartnerAccountForMaster":
+        return jsonOutput(updatePartnerAccountForMaster(body));
 
       case "adminLogin":
         return jsonOutput(adminLogin(body));
@@ -156,6 +159,15 @@ function doPost(e) {
 
       case "savePartnerPayment":
         return jsonOutput(savePartnerPayment(body));
+
+      case "getNotifications":
+        return jsonOutput(getNotifications(body));
+
+      case "markNotificationRead":
+        return jsonOutput(markNotificationRead(body));
+
+      case "markAllNotificationsRead":
+        return jsonOutput(markAllNotificationsRead(body));
 
       default:
         return jsonOutput({

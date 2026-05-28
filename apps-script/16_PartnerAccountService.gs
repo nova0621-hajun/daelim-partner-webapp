@@ -98,7 +98,8 @@ function verifyPartnerPassword_(inputPassword, savedPassword) {
   const input = normalizePartnerPassword_(inputPassword);
   const saved = String(savedPassword || "").trim();
 
-  if (!input || !saved) return false;
+  if (!input) return false;
+  if (!saved && input === "0000") return true;
 
   if (isPartnerPasswordHash_(saved)) {
     return saved === hashPartnerPassword_(input);
@@ -175,7 +176,7 @@ function getPhoneLast4_(phone) {
  * @returns {string} 로그인ID
  */
 function buildPartnerLoginId_(name, phone) {
-  return String(name || "").trim() + getPhoneLast4_(phone);
+  return String(name || "").trim();
 }
 
 /**
@@ -652,5 +653,120 @@ function updatePartnerEngineerAccountRequest(body) {
       status === "승인"
         ? "기사 계정이 승인되었습니다. 임시비밀번호는 0000입니다."
         : "기사 계정 요청이 반려되었습니다."
+  };
+}
+
+/**
+ * master 전용 협력사 포털 계정 목록 조회
+ *
+ * @param {Object} body 요청 데이터
+ * @returns {Object} 협력사 포털 계정 목록
+ */
+function getPartnerAccountsForMaster(body) {
+  const auth = verifyAdminMasterForAccount_(body);
+
+  if (!auth.success) {
+    return auth;
+  }
+
+  const sheet = getPartnerAccountSheet_();
+  const lastRow = sheet.getLastRow();
+  const rows = [];
+
+  if (lastRow >= 2) {
+    const values = sheet.getRange(2, 1, lastRow - 1, PARTNER_ACCOUNT_COL.CREATED_AT).getValues();
+
+    values.forEach(function(row, index) {
+      const account = rowToPartnerAccount_(row, index + 2);
+      account.loginId = account.loginId || account.name;
+      account.passwordStatus =
+        account.passwordStatus ||
+        (!account.password || account.password === "0000" || !isPartnerPasswordHash_(account.password) ? "임시" : "정상");
+      delete account.password;
+      rows.push(account);
+    });
+  }
+
+  return {
+    success: true,
+    rows: rows
+  };
+}
+
+/**
+ * master 전용 협력사 포털 계정 권한 / 사용여부 변경
+ *
+ * @param {Object} body 요청 데이터
+ * @returns {Object} 변경 결과
+ */
+function updatePartnerAccountForMaster(body) {
+  const auth = verifyAdminMasterForAccount_(body);
+
+  if (!auth.success) {
+    return auth;
+  }
+
+  const rowNumber = Number(body.rowNumber);
+  const role = String(body.role || "").trim();
+  const enabled = String(body.enabled || "").trim();
+
+  if (!rowNumber || rowNumber < 2) {
+    return {
+      success: false,
+      message: "계정 행 번호가 올바르지 않습니다."
+    };
+  }
+
+  if (role && ["partner", "engineer"].indexOf(role) === -1) {
+    return {
+      success: false,
+      message: "협력사 포털 권한은 partner 또는 engineer만 가능합니다."
+    };
+  }
+
+  if (enabled && ["승인", "중지"].indexOf(enabled) === -1) {
+    return {
+      success: false,
+      message: "사용여부는 승인 또는 중지만 가능합니다."
+    };
+  }
+
+  const sheet = getPartnerAccountSheet_();
+
+  if (role) {
+    sheet.getRange(rowNumber, PARTNER_ACCOUNT_COL.ROLE).setValue(role);
+  }
+
+  if (enabled) {
+    sheet.getRange(rowNumber, PARTNER_ACCOUNT_COL.ENABLED).setValue(enabled);
+  }
+
+  const loginId = String(body.loginId || body.name || "").trim();
+
+  if (loginId) {
+    sheet.getRange(rowNumber, PARTNER_ACCOUNT_COL.LOGIN_ID).setValue(loginId);
+  }
+
+  const savedPassword = String(sheet.getRange(rowNumber, PARTNER_ACCOUNT_COL.PASSWORD).getDisplayValue() || "").trim();
+
+  if (!savedPassword) {
+    sheet.getRange(rowNumber, PARTNER_ACCOUNT_COL.PASSWORD).setValue("0000");
+    sheet.getRange(rowNumber, PARTNER_ACCOUNT_COL.PASSWORD_STATUS).setValue("임시");
+  }
+
+  SpreadsheetApp.flush();
+
+  const row = sheet.getRange(rowNumber, 1, 1, PARTNER_ACCOUNT_COL.CREATED_AT).getValues()[0];
+  const account = rowToPartnerAccount_(row, rowNumber);
+  account.loginId = account.loginId || account.name;
+  account.passwordStatus =
+    account.passwordStatus ||
+    (!account.password || account.password === "0000" || !isPartnerPasswordHash_(account.password) ? "임시" : "정상");
+  delete account.password;
+
+  return {
+    success: true,
+    account: account,
+    message: "협력사 포털 계정 정보가 저장되었습니다."
   };
 }
