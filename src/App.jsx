@@ -247,6 +247,7 @@ export default function PartnerInstallerPortal() {
   const [engineerOptions, setEngineerOptions] = useState([]);
   const [restoringSession, setRestoringSession] = useState(true);
   const [activeTab, setActiveTab] = useState("today");
+  const [selectedMonth, setSelectedMonth] = useState("all");
   const [detailJob, setDetailJob] = useState(null);
   const [uploadJob, setUploadJob] = useState(null);
   const [historyJob, setHistoryJob] = useState(null);
@@ -302,21 +303,39 @@ export default function PartnerInstallerPortal() {
     return sortJobsByInstallDateDesc(scopedJobs);
   }, [jobs, user]);
 
+  const monthOptions = useMemo(() => {
+    return Array.from(new Set(
+      visibleJobs
+        .map((job) => String(job.month || job.sheet || "").trim())
+        .filter(Boolean),
+    )).sort((a, b) => b.localeCompare(a));
+  }, [visibleJobs]);
+
+  useEffect(() => {
+    if (selectedMonth === "all") return;
+    if (!monthOptions.includes(selectedMonth)) setSelectedMonth("all");
+  }, [monthOptions, selectedMonth]);
+
+  const monthVisibleJobs = useMemo(() => {
+    if (selectedMonth === "all") return visibleJobs;
+    return visibleJobs.filter((job) => String(job.month || job.sheet || "").trim() === selectedMonth);
+  }, [selectedMonth, visibleJobs]);
+
   const filteredJobs = useMemo(() => {
-    if (activeTab === "unassigned") return visibleJobs.filter((job) => !job.engineer || job.engineer === "미배정" || job.status === "기사배정요청");
-    if (activeTab === "photo") return visibleJobs.filter((job) => job.status !== "시공완료" && !hasCompletionPhoto(job));
-    if (activeTab === "complete") return visibleJobs.filter((job) => job.status === "시공완료");
-    if (activeTab === "progress") return visibleJobs.filter((job) => job.status !== "시공완료");
-    return visibleJobs;
-  }, [activeTab, visibleJobs]);
+    if (activeTab === "unassigned") return monthVisibleJobs.filter((job) => !job.engineer || job.engineer === "\uBBF8\uBC30\uC815" || job.status === "\uAE30\uC0AC\uBC30\uC815\uC694\uCCAD");
+    if (activeTab === "photo") return monthVisibleJobs.filter((job) => job.status !== "\uC2DC\uACF5\uC644\uB8CC" && !hasCompletionPhoto(job));
+    if (activeTab === "complete") return monthVisibleJobs.filter((job) => job.status === "\uC2DC\uACF5\uC644\uB8CC");
+    if (activeTab === "progress") return monthVisibleJobs.filter((job) => job.status !== "\uC2DC\uACF5\uC644\uB8CC");
+    return monthVisibleJobs;
+  }, [activeTab, monthVisibleJobs]);
 
   const stats = useMemo(() => ({
-    total: visibleJobs.length,
-    unassigned: visibleJobs.filter((job) => !job.engineer || job.engineer === "미배정" || job.status === "기사배정요청").length,
-    photoMissing: visibleJobs.filter((job) => job.photo !== "등록완료").length,
-    completePhotoMissing: visibleJobs.filter((job) => job.status !== "시공완료" && !hasCompletionPhoto(job)).length,
-    complete: visibleJobs.filter((job) => job.status === "시공완료").length,
-  }), [visibleJobs]);
+    total: monthVisibleJobs.length,
+    unassigned: monthVisibleJobs.filter((job) => !job.engineer || job.engineer === "\uBBF8\uBC30\uC815" || job.status === "\uAE30\uC0AC\uBC30\uC815\uC694\uCCAD").length,
+    photoMissing: monthVisibleJobs.filter((job) => job.photo !== "\uB4F1\uB85D\uC644\uB8CC").length,
+    completePhotoMissing: monthVisibleJobs.filter((job) => job.status !== "\uC2DC\uACF5\uC644\uB8CC" && !hasCompletionPhoto(job)).length,
+    complete: monthVisibleJobs.filter((job) => job.status === "\uC2DC\uACF5\uC644\uB8CC").length,
+  }), [monthVisibleJobs]);
 
   const groupedJobs = useMemo(() => {
     const groups = new Map();
@@ -333,8 +352,8 @@ export default function PartnerInstallerPortal() {
 
   const paymentTotal = useMemo(() => {
     if (user?.role !== "partner") return 0;
-    return monthPaymentTotal(filteredJobs);
-  }, [filteredJobs, user]);
+    return monthPaymentTotal(monthVisibleJobs);
+  }, [monthVisibleJobs, user]);
 
   const selectTab = (tab) => {
     setActiveTab(tab);
@@ -992,6 +1011,13 @@ export default function PartnerInstallerPortal() {
             onSubmit={submitEngineerAccountRequest}
           />
         ) : null}
+        <MonthFilter
+          months={monthOptions}
+          selectedMonth={selectedMonth}
+          setSelectedMonth={setSelectedMonth}
+          totalCount={visibleJobs.length}
+        />
+        <PortalSummary user={user} stats={stats} paymentTotal={paymentTotal} selectedMonth={selectedMonth} />
         <StatGrid user={user} stats={stats} setActiveTab={selectTab} />
         <TabBar user={user} activeTab={activeTab} setActiveTab={selectTab} />
 
@@ -1291,6 +1317,81 @@ function PortalHeader({ user, onLogout }) {
         </button>
       </div>
     </header>
+  );
+}
+
+function MonthFilter({ months, selectedMonth, setSelectedMonth, totalCount }) {
+  const options = [["all", "\uC804\uCCB4"], ...months.map((month) => [month, month])];
+
+  return (
+    <section className="rounded-3xl border bg-white p-3 shadow-sm">
+      <div className="mb-2 flex items-center justify-between gap-3 px-1">
+        <div>
+          <p className="text-xs font-black text-slate-500">{"\uC6D4 \uD544\uD130"}</p>
+          <p className="text-[11px] font-bold text-slate-400">{"\uC804\uCCB4 \uC870\uD68C "}{totalCount}{"\uAC74"}</p>
+        </div>
+        <Badge className="border-slate-200 bg-slate-50 text-slate-600">
+          {selectedMonth === "all" ? "\uC804\uCCB4" : selectedMonth}
+        </Badge>
+      </div>
+      <div className="flex gap-2 overflow-x-auto pb-1">
+        {options.map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            onClick={() => setSelectedMonth(value)}
+            className={`shrink-0 rounded-2xl px-4 py-2 text-xs font-black ${selectedMonth === value ? "bg-slate-900 text-white" : "border bg-white text-slate-600"}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function PortalSummary({ user, stats, paymentTotal, selectedMonth }) {
+  const progressCount = Math.max(0, stats.total - stats.complete);
+  const rows = user.role === "partner"
+    ? [
+        ["\uD604\uC7A5", stats.total],
+        ["\uC9C4\uD589", progressCount],
+        ["\uC0AC\uC9C4\uD544\uC694", stats.completePhotoMissing],
+        ["\uC644\uB8CC", stats.complete],
+        ["\uBBF8\uBC30\uC815", stats.unassigned],
+      ]
+    : [
+        ["\uD604\uC7A5", stats.total],
+        ["\uC9C4\uD589", progressCount],
+        ["\uC0AC\uC9C4\uD544\uC694", stats.completePhotoMissing],
+        ["\uC644\uB8CC", stats.complete],
+      ];
+
+  return (
+    <section className="rounded-3xl border bg-white p-4 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-black text-slate-500">{"\uB300\uD45C \uC694\uC57D"}</p>
+          <h2 className="mt-1 text-lg font-black text-slate-900">
+            {selectedMonth === "all" ? "\uC804\uCCB4 \uC6D4" : selectedMonth}
+          </h2>
+        </div>
+        {user.role === "partner" ? (
+          <div className="text-right">
+            <p className="text-[11px] font-black text-emerald-600">{"\uC9C0\uAE09\uC2DC\uACF5\uBE44 \uD569\uACC4"}</p>
+            <p className="mt-1 text-lg font-black text-emerald-700">{formatMoney(paymentTotal)}</p>
+          </div>
+        ) : null}
+      </div>
+      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4 md:grid-cols-5">
+        {rows.map(([label, value]) => (
+          <div key={label} className="rounded-2xl bg-slate-50 px-3 py-3">
+            <p className="text-[11px] font-black text-slate-500">{label}</p>
+            <p className="mt-1 text-xl font-black text-slate-900">{value}</p>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
