@@ -68,8 +68,8 @@ function clearPartnerSession() {
 }
 
 const STATUS_CLASS = {
-  엔지니어배정요청: "border-amber-200 bg-amber-50 text-amber-700",
-  엔지니어배정완료: "border-blue-200 bg-blue-50 text-blue-700",
+  기사배정요청: "border-amber-200 bg-amber-50 text-amber-700",
+  기사배정완료: "border-blue-200 bg-blue-50 text-blue-700",
   시공계획확정: "border-lime-200 bg-lime-50 text-lime-700",
   시공중: "border-purple-200 bg-purple-50 text-purple-700",
   시공완료: "border-emerald-700 bg-emerald-600 text-white",
@@ -303,7 +303,7 @@ export default function PartnerInstallerPortal() {
   }, [jobs, user]);
 
   const filteredJobs = useMemo(() => {
-    if (activeTab === "unassigned") return visibleJobs.filter((job) => !job.engineer || job.engineer === "미배정" || job.status === "엔지니어배정요청");
+    if (activeTab === "unassigned") return visibleJobs.filter((job) => !job.engineer || job.engineer === "미배정" || job.status === "기사배정요청");
     if (activeTab === "photo") return visibleJobs.filter((job) => job.status !== "시공완료" && !hasCompletionPhoto(job));
     if (activeTab === "complete") return visibleJobs.filter((job) => job.status === "시공완료");
     if (activeTab === "progress") return visibleJobs.filter((job) => job.status !== "시공완료");
@@ -312,7 +312,7 @@ export default function PartnerInstallerPortal() {
 
   const stats = useMemo(() => ({
     total: visibleJobs.length,
-    unassigned: visibleJobs.filter((job) => !job.engineer || job.engineer === "미배정" || job.status === "엔지니어배정요청").length,
+    unassigned: visibleJobs.filter((job) => !job.engineer || job.engineer === "미배정" || job.status === "기사배정요청").length,
     photoMissing: visibleJobs.filter((job) => job.photo !== "등록완료").length,
     completePhotoMissing: visibleJobs.filter((job) => job.status !== "시공완료" && !hasCompletionPhoto(job)).length,
     complete: visibleJobs.filter((job) => job.status === "시공완료").length,
@@ -669,7 +669,7 @@ export default function PartnerInstallerPortal() {
     const assignedPatch = {
       engineer,
       engineerPhone: nextEngineerPhone,
-      status: "엔지니어배정완료",
+      status: "기사배정완료",
     };
 
     setAssigningJobId(key);
@@ -1342,7 +1342,7 @@ function JobCard({ job, user, onDetail, onUpload, onHistory, onComplete, complet
   const isComplete = job.status === "시공완료";
   const locked = isJobLocked(job);
   const completePhotoReady = hasCompletionPhoto(job);
-  const needsEngineer = user.role === "partner" && (!job.engineer || job.engineer === "미배정" || job.status === "엔지니어배정요청");
+  const needsEngineer = user.role === "partner" && (!job.engineer || job.engineer === "미배정" || job.status === "기사배정요청");
 
   return (
     <article className="rounded-3xl border bg-white p-4 shadow-sm">

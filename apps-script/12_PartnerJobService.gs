@@ -160,7 +160,7 @@ function getPartnerJobs(body) {
  * 저장 대상:
  * - V열: 시공엔지니어
  * - W열: 엔지니어 연락처
- * - 상태: 엔지니어배정완료
+ * - 상태: 기사배정완료
  *
  * @param {Object} body 요청 데이터
  * @returns {Object} 저장 결과
@@ -229,17 +229,43 @@ function assignEngineer(body) {
   lock.waitLock(5000);
 
   try {
+    const beforeStatus = String(sheet.getRange(rowNumber, COL.STATUS).getValue() || "").trim();
+    const beforeEngineer = String(sheet.getRange(rowNumber, COL.INSTALLER).getValue() || "").trim();
+    const beforeEngineerPhone = String(sheet.getRange(rowNumber, COL.INSTALLER_PHONE).getValue() || "").trim();
+    const historyCell = sheet.getRange(rowNumber, COL.HISTORY);
+    const beforeHistory = String(historyCell.getValue() || "").trim();
+    const nextStatus = "\uAE30\uC0AC\uBC30\uC815\uC644\uB8CC";
+    const now = Utilities.formatDate(new Date(), TIMEZONE, "yyyy-MM-dd HH:mm");
+    const historyLine =
+      "[" + now + " / " + (partnerName || "\uD611\uB825\uC0AC") + "] \uAE30\uC0AC\uBC30\uC815: " +
+      (beforeEngineer || "\uBBF8\uBC30\uC815") + " -> " + (engineerName || "\uBBF8\uBC30\uC815");
+
+    sheet.getRange(rowNumber, COL.STATUS).setValue(nextStatus);
     sheet.getRange(rowNumber, COL.INSTALLER).setValue(engineerName);
     sheet.getRange(rowNumber, COL.INSTALLER_PHONE).setValue(engineerPhone);
-    sheet.getRange(rowNumber, COL.STATUS).setValue("엔지니어배정완료");
+    historyCell.setValue(beforeHistory ? beforeHistory + "\n" + historyLine : historyLine);
+
+    if (typeof writeHistoryLog === "function") {
+      writeHistoryLog({
+        month: month,
+        rowNumber: rowNumber,
+        customer: String(sheet.getRange(rowNumber, COL.CUSTOMER).getValue() || ""),
+        actionType: "\uAE30\uC0AC\uBC30\uC815",
+        fieldName: "\uC2DC\uACF5\uAE30\uC0AC",
+        beforeValue: beforeStatus + " / " + beforeEngineer + " / " + beforeEngineerPhone,
+        afterValue: nextStatus + " / " + engineerName + " / " + engineerPhone,
+        actor: partnerName || "\uD611\uB825\uC0AC"
+      });
+    }
 
     return {
       success: true,
-      message: "엔지니어 배정이 저장되었습니다.",
+      message: "\uAE30\uC0AC \uBC30\uC815\uC774 \uC800\uC7A5\uB418\uC5C8\uC2B5\uB2C8\uB2E4.",
       month: month,
       rowNumber: rowNumber,
       engineerName: engineerName,
-      engineerPhone: engineerPhone
+      engineerPhone: engineerPhone,
+      status: nextStatus
     };
   } finally {
     lock.releaseLock();
