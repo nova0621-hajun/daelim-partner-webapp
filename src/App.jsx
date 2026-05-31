@@ -155,7 +155,13 @@ function hasCompletionPhoto(job) {
 }
 
 function partnerPaymentAmount(job) {
-  return numberValue(job?.partnerPaymentAmount || job?.paymentAmount || job?.installPayment || job?.contractPrice);
+  const splitTotal =
+    numberValue(job?.kitchenPaymentAmount) +
+    numberValue(job?.builtInPaymentAmount ?? job?.storagePaymentAmount) +
+    numberValue(job?.entrancePaymentAmount) +
+    numberValue(job?.extraPaymentAmount);
+
+  return splitTotal || numberValue(job?.partnerPaymentAmount || job?.paymentAmount || job?.installPayment || job?.contractPrice);
 }
 
 function monthPaymentTotal(rows) {
