@@ -1577,7 +1577,8 @@ function JobDetailModal({ job, user, onClose, onUpload, onHistory, onAssign, eng
             <DetailRow label="시공엔지니어" value={job.engineer || "미배정"} />
             <DetailRow label="엔지니어 연락처" value={<PhoneLink value={job.engineerPhone} />} />
             {user.role === "partner" ? <DetailRow label="지급시공비" value={formatMoney(partnerPaymentAmount(job))} /> : null}
-            {job.extraCostMemo ? <DetailRow label="추가비용 메모" value={job.extraCostMemo} /> : null}
+            {job.extraCostMemo ? <DetailRow label="계약 추가비용 내용" value={job.extraCostMemo} /> : null}
+            {user.role === "partner" && job.extraPaymentMemo ? <DetailRow label="지급 추가비용 내용" value={job.extraPaymentMemo} /> : null}
           </DetailBox>
         </div>
 
