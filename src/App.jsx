@@ -135,6 +135,23 @@ function sortJobsByInstallDateDesc(rows) {
   });
 }
 
+function isThisWeekJob(job) {
+  const start = parseJobDate(job?.installDate);
+  const end = parseJobDate(job?.endDate) || start;
+  if (!start) return false;
+
+  const now = new Date();
+  const weekStart = new Date(now);
+  weekStart.setHours(0, 0, 0, 0);
+  weekStart.setDate(now.getDate() - now.getDay());
+
+  const weekEnd = new Date(weekStart);
+  weekEnd.setDate(weekStart.getDate() + 6);
+  weekEnd.setHours(23, 59, 59, 999);
+
+  return start <= weekEnd && end >= weekStart;
+}
+
 function jobKey(job) {
   if (!job) return "";
   return `${job.month || job.sheet || ""}-${job.rowNumber || job.id || job.jobId || ""}`;
@@ -338,9 +355,11 @@ export default function PartnerInstallerPortal() {
   const stats = useMemo(() => ({
     total: monthVisibleJobs.length,
     unassigned: monthVisibleJobs.filter((job) => !job.engineer || job.engineer === "\uBBF8\uBC30\uC815" || job.status === "\uAE30\uC0AC\uBC30\uC815\uC694\uCCAD").length,
+    week: monthVisibleJobs.filter(isThisWeekJob).length,
     photoMissing: monthVisibleJobs.filter((job) => job.photo !== "\uB4F1\uB85D\uC644\uB8CC").length,
     completePhotoMissing: monthVisibleJobs.filter((job) => job.status !== "\uC2DC\uACF5\uC644\uB8CC" && !hasCompletionPhoto(job)).length,
     complete: monthVisibleJobs.filter((job) => job.status === "\uC2DC\uACF5\uC644\uB8CC").length,
+    incomplete: monthVisibleJobs.filter((job) => job.status !== "\uC2DC\uACF5\uC644\uB8CC").length,
   }), [monthVisibleJobs]);
 
   const groupedJobs = useMemo(() => {
@@ -1357,27 +1376,26 @@ function MonthFilter({ months, selectedMonth, setSelectedMonth, totalCount }) {
 }
 
 function PortalSummary({ user, stats, paymentTotal, selectedMonth }) {
-  const progressCount = Math.max(0, stats.total - stats.complete);
   const rows = user.role === "partner"
     ? [
-        ["\uD604\uC7A5", stats.total],
-        ["\uC9C4\uD589", progressCount],
-        ["\uC0AC\uC9C4\uD544\uC694", stats.completePhotoMissing],
-        ["\uC644\uB8CC", stats.complete],
-        ["\uBBF8\uBC30\uC815", stats.unassigned],
+        ["이번달 배정", stats.total],
+        ["이번주 시공", stats.week],
+        ["시공완료", stats.complete],
+        ["미완료", stats.incomplete],
+        ["기사 미배정", stats.unassigned],
       ]
     : [
-        ["\uD604\uC7A5", stats.total],
-        ["\uC9C4\uD589", progressCount],
-        ["\uC0AC\uC9C4\uD544\uC694", stats.completePhotoMissing],
-        ["\uC644\uB8CC", stats.complete],
+        ["이번달 배정", stats.total],
+        ["이번주 시공", stats.week],
+        ["시공완료", stats.complete],
+        ["미완료", stats.incomplete],
       ];
 
   return (
     <section className="rounded-3xl border bg-white p-4 shadow-sm">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-xs font-black text-slate-500">{"\uB300\uD45C \uC694\uC57D"}</p>
+          <p className="text-xs font-black text-slate-500">현장 요약</p>
           <h2 className="mt-1 text-lg font-black text-slate-900">
             {selectedMonth === "all" ? "\uC804\uCCB4 \uC6D4" : selectedMonth}
           </h2>
@@ -1559,6 +1577,7 @@ function JobDetailModal({ job, user, onClose, onUpload, onHistory, onAssign, eng
             <DetailRow label="시공엔지니어" value={job.engineer || "미배정"} />
             <DetailRow label="엔지니어 연락처" value={<PhoneLink value={job.engineerPhone} />} />
             {user.role === "partner" ? <DetailRow label="지급시공비" value={formatMoney(partnerPaymentAmount(job))} /> : null}
+            {job.extraCostMemo ? <DetailRow label="추가비용 메모" value={job.extraCostMemo} /> : null}
           </DetailBox>
         </div>
 
