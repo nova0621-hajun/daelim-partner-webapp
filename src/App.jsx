@@ -123,6 +123,10 @@ function parseJobDate(value) {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
+function toDateKey(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
 function sortJobsByInstallDateDesc(rows) {
   return [...rows].sort((a, b) => {
     const ad = parseJobDate(a.installDate);
@@ -272,6 +276,8 @@ export default function PartnerInstallerPortal() {
   const [restoringSession, setRestoringSession] = useState(true);
   const [activeTab, setActiveTab] = useState("today");
   const [selectedMonth, setSelectedMonth] = useState("all");
+  const [selectedEngineerFilter, setSelectedEngineerFilter] = useState("");
+  const [selectedCalendarDate, setSelectedCalendarDate] = useState("");
   const [detailJob, setDetailJob] = useState(null);
   const [uploadJob, setUploadJob] = useState(null);
   const [historyJob, setHistoryJob] = useState(null);
@@ -346,12 +352,22 @@ export default function PartnerInstallerPortal() {
   }, [selectedMonth, visibleJobs]);
 
   const filteredJobs = useMemo(() => {
-    if (activeTab === "unassigned") return monthVisibleJobs.filter((job) => !job.engineer || job.engineer === "\uBBF8\uBC30\uC815" || job.status === "\uAE30\uC0AC\uBC30\uC815\uC694\uCCAD");
-    if (activeTab === "photo") return monthVisibleJobs.filter((job) => job.status !== "\uC2DC\uACF5\uC644\uB8CC" && !hasCompletionPhoto(job));
-    if (activeTab === "complete") return monthVisibleJobs.filter((job) => job.status === "\uC2DC\uACF5\uC644\uB8CC");
-    if (activeTab === "progress") return monthVisibleJobs.filter((job) => job.status !== "\uC2DC\uACF5\uC644\uB8CC");
-    return monthVisibleJobs;
-  }, [activeTab, monthVisibleJobs]);
+    const engineerScoped = selectedEngineerFilter
+      ? monthVisibleJobs.filter((job) => String(job.engineer || "미배정").trim() === selectedEngineerFilter)
+      : monthVisibleJobs;
+    const calendarScoped = selectedCalendarDate
+      ? engineerScoped.filter((job) => {
+        const date = parseJobDate(job.installDate);
+        return date && toDateKey(date) === selectedCalendarDate;
+      })
+      : engineerScoped;
+
+    if (activeTab === "unassigned") return calendarScoped.filter((job) => !job.engineer || job.engineer === "\uBBF8\uBC30\uC815" || job.status === "\uAE30\uC0AC\uBC30\uC815\uC694\uCCAD");
+    if (activeTab === "photo") return calendarScoped.filter((job) => job.status !== "\uC2DC\uACF5\uC644\uB8CC" && !hasCompletionPhoto(job));
+    if (activeTab === "complete") return calendarScoped.filter((job) => job.status === "\uC2DC\uACF5\uC644\uB8CC");
+    if (activeTab === "progress") return calendarScoped.filter((job) => job.status !== "\uC2DC\uACF5\uC644\uB8CC");
+    return calendarScoped;
+  }, [activeTab, monthVisibleJobs, selectedCalendarDate, selectedEngineerFilter]);
 
   const stats = useMemo(() => ({
     total: monthVisibleJobs.length,
@@ -381,7 +397,19 @@ export default function PartnerInstallerPortal() {
     return monthPaymentTotal(monthVisibleJobs);
   }, [monthVisibleJobs, user]);
 
+  const filteredPaymentTotal = useMemo(() => {
+    if (user?.role !== "partner") return 0;
+    return monthPaymentTotal(filteredJobs);
+  }, [filteredJobs, user]);
+
+  useEffect(() => {
+    setSelectedEngineerFilter("");
+    setSelectedCalendarDate("");
+  }, [selectedMonth, user?.role]);
+
   const selectTab = (tab) => {
+    setSelectedEngineerFilter("");
+    setSelectedCalendarDate("");
     setActiveTab(tab);
     window.setTimeout(() => {
       listRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1043,8 +1071,38 @@ export default function PartnerInstallerPortal() {
           setSelectedMonth={setSelectedMonth}
           totalCount={visibleJobs.length}
         />
-        <ConstructionCalendar jobs={monthVisibleJobs} selectedMonth={selectedMonth} onSelectTab={selectTab} />
-        <StatGrid user={user} stats={stats} setActiveTab={selectTab} />
+        <MonthlyConstructionCalendar
+          jobs={monthVisibleJobs}
+          selectedMonth={selectedMonth}
+          selectedDate={selectedCalendarDate}
+          onSelectDate={(dateKey) => {
+            setSelectedEngineerFilter("");
+            setSelectedCalendarDate(dateKey);
+            setActiveTab("today");
+            window.setTimeout(() => {
+              listRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+            }, 80);
+          }}
+        />
+        {user.role === "partner" ? (
+          <PartnerPaymentDashboard
+            jobs={monthVisibleJobs}
+            stats={stats}
+            paymentTotal={paymentTotal}
+            selectedEngineer={selectedEngineerFilter}
+            onSelectEngineer={(name) => {
+              setSelectedCalendarDate("");
+              setSelectedEngineerFilter((current) => current === name ? "" : name);
+              setActiveTab("today");
+              window.setTimeout(() => {
+                listRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+              }, 80);
+            }}
+            onClearEngineer={() => setSelectedEngineerFilter("")}
+            onSelectSummary={selectTab}
+          />
+        ) : null}
+        {user.role === "partner" ? null : <StatGrid user={user} stats={stats} setActiveTab={selectTab} />}
         <TabBar user={user} activeTab={activeTab} setActiveTab={selectTab} />
 
         <section ref={listRef} className="scroll-mt-4 space-y-3 rounded-3xl bg-white p-4 shadow-sm md:p-5">
@@ -1052,8 +1110,32 @@ export default function PartnerInstallerPortal() {
             <div>
               <h2 className="text-lg font-black">{user.role === "partner" ? "협력사 현장 목록" : "내 현장 목록"}</h2>
               <p className="mt-1 text-xs font-medium text-slate-500">
-                총 {filteredJobs.length}건 표시 중{user.role === "partner" ? ` · 표시 합계 ${formatMoney(paymentTotal)}` : ""}
+                총 {filteredJobs.length}건 표시 중{user.role === "partner" ? ` · 표시 합계 ${formatMoney(filteredPaymentTotal)}` : ""}
               </p>
+              {selectedCalendarDate || selectedEngineerFilter ? (
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  {selectedCalendarDate ? (
+                    <Badge className="border-blue-200 bg-blue-50 text-blue-700">
+                      {selectedCalendarDate} {"\uC2DC\uACF5 \uD604\uC7A5"}
+                    </Badge>
+                  ) : null}
+                  {selectedEngineerFilter ? (
+                    <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700">
+                      {selectedEngineerFilter} {"\uC2DC\uACF5\uAE30\uC0AC \uD604\uC7A5"}
+                    </Badge>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedCalendarDate("");
+                      setSelectedEngineerFilter("");
+                    }}
+                    className="rounded-full border px-3 py-1 text-[11px] font-black text-slate-600"
+                  >
+                    {"\uC804\uCCB4 \uD604\uC7A5 \uBCF4\uAE30"}
+                  </button>
+                </div>
+              ) : null}
             </div>
             <button onClick={() => refreshJobs()} disabled={refreshing} className="rounded-2xl border bg-white px-3 py-2 text-xs font-black text-slate-600 disabled:opacity-50">{refreshing ? "조회중" : "새로고침"}</button>
           </div>
@@ -1376,6 +1458,223 @@ function MonthFilter({ months, selectedMonth, setSelectedMonth, totalCount }) {
   );
 }
 
+function MonthlyConstructionCalendar({ jobs = [], selectedMonth = "", selectedDate = "", onSelectDate }) {
+  const calendarData = useMemo(() => {
+    const jobMonth = jobs
+      .map((job) => parseJobDate(job.installDate))
+      .find(Boolean);
+    const selectedMatch = /^(\d{2})\.(\d{2})$/.exec(String(selectedMonth || ""));
+    const today = new Date();
+    const baseDate = selectedMatch
+      ? new Date(2000 + Number(selectedMatch[1]), Number(selectedMatch[2]) - 1, 1)
+      : jobMonth || today;
+    const year = baseDate.getFullYear();
+    const monthIndex = baseDate.getMonth();
+    const firstDay = new Date(year, monthIndex, 1);
+    const start = new Date(firstDay);
+    start.setDate(firstDay.getDate() - firstDay.getDay());
+
+    const jobMap = new Map();
+    jobs.forEach((job) => {
+      const date = parseJobDate(job.installDate);
+      if (!date) return;
+      if (date.getFullYear() !== year || date.getMonth() !== monthIndex) return;
+
+      const key = toDateKey(date);
+      const rows = jobMap.get(key) || [];
+      rows.push(job);
+      jobMap.set(key, rows);
+    });
+
+    const cells = Array.from({ length: 42 }, (_, index) => {
+      const date = new Date(start);
+      date.setDate(start.getDate() + index);
+      const key = toDateKey(date);
+
+      return {
+        date,
+        key,
+        inMonth: date.getMonth() === monthIndex,
+        isToday: key === toDateKey(today),
+        rows: jobMap.get(key) || [],
+      };
+    });
+
+    return {
+      title: `${year}.${String(monthIndex + 1).padStart(2, "0")}`,
+      cells,
+      scheduledCount: Array.from(jobMap.values()).reduce((sum, rows) => sum + rows.length, 0),
+    };
+  }, [jobs, selectedMonth]);
+
+  return (
+    <section className="rounded-3xl border bg-white p-4 shadow-sm md:p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-black text-blue-600">{"\uC2DC\uACF5 \uCE98\uB9B0\uB354"}</p>
+          <h2 className="mt-1 text-lg font-black text-slate-900">
+            {calendarData.title} {"\uC2DC\uACF5\uC77C\uC815"}
+          </h2>
+          <p className="mt-1 text-xs font-bold text-slate-400">
+            {"\uB0A0\uC9DC\uBCC4 \uBC30\uC815 \uD604\uC7A5"} {calendarData.scheduledCount}{"\uAC74"}
+          </p>
+        </div>
+        <CalendarDays className="h-5 w-5 text-blue-500" />
+      </div>
+
+      <div className="mt-4 grid grid-cols-7 gap-1 text-center text-[11px] font-black text-slate-400">
+        {["\uC77C", "\uC6D4", "\uD654", "\uC218", "\uBAA9", "\uAE08", "\uD1A0"].map((day) => (
+          <div key={day} className="py-1">{day}</div>
+        ))}
+      </div>
+
+      <div className="mt-1 grid grid-cols-7 gap-1">
+        {calendarData.cells.map((cell) => (
+          <button
+            key={cell.key}
+            type="button"
+            onClick={() => cell.rows.length && onSelectDate?.(cell.key)}
+            className={`min-h-[88px] rounded-2xl border p-1.5 text-left transition active:scale-[0.99] md:min-h-[112px] ${
+              cell.inMonth ? "border-slate-100 bg-slate-50" : "border-slate-50 bg-white text-slate-300"
+            } ${cell.rows.length ? "hover:border-blue-200 hover:bg-blue-50" : ""} ${
+              selectedDate === cell.key ? "border-blue-400 bg-blue-50 ring-2 ring-blue-100" : ""
+            }`}
+          >
+            <div className="flex items-center justify-between gap-1">
+              <span className={`text-xs font-black ${cell.isToday ? "rounded-full bg-blue-600 px-1.5 py-0.5 text-white" : "text-slate-600"}`}>
+                {cell.date.getDate()}
+              </span>
+              {cell.rows.length ? (
+                <span className="rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] font-black text-blue-700">
+                  {cell.rows.length}
+                </span>
+              ) : null}
+            </div>
+            <div className="mt-1 space-y-1">
+              {cell.rows.slice(0, 2).map((job) => (
+                <div key={`${cell.key}-${job.month}-${job.rowNumber}`} className="truncate rounded-lg bg-white px-1.5 py-1 text-[10px] font-black text-slate-700 shadow-sm">
+                  {job.customer || "\uD604\uC7A5"}
+                </div>
+              ))}
+              {cell.rows.length > 2 ? (
+                <div className="px-1.5 text-[10px] font-black text-blue-600">+{cell.rows.length - 2}</div>
+              ) : null}
+            </div>
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function PartnerPaymentDashboard({ jobs = [], stats, paymentTotal, selectedEngineer, onSelectEngineer, onClearEngineer, onSelectSummary }) {
+  const dashboard = useMemo(() => {
+    const itemTotals = jobs.reduce((acc, job) => {
+      acc.kitchen += numberValue(job.kitchenPaymentAmount);
+      acc.builtIn += numberValue(job.builtInPaymentAmount ?? job.storagePaymentAmount);
+      acc.entrance += numberValue(job.entrancePaymentAmount);
+      acc.extra += numberValue(job.extraPaymentAmount);
+      acc.total += partnerPaymentAmount(job);
+      return acc;
+    }, { kitchen: 0, builtIn: 0, entrance: 0, extra: 0, total: 0 });
+
+    const engineerMap = new Map();
+    jobs.forEach((job) => {
+      const name = String(job.engineer || "\uBBF8\uBC30\uC815").trim() || "\uBBF8\uBC30\uC815";
+      const row = engineerMap.get(name) || { name, count: 0, total: 0 };
+      row.count += 1;
+      row.total += partnerPaymentAmount(job);
+      engineerMap.set(name, row);
+    });
+
+    return {
+      itemTotals,
+      engineerRows: Array.from(engineerMap.values()).sort((a, b) => b.total - a.total || b.count - a.count),
+    };
+  }, [jobs]);
+
+  const summaryCards = [
+    ["\uC774\uBC88\uB2EC \uBC30\uC815 \uD604\uC7A5", stats.total, "today"],
+    ["\uC774\uBC88\uC8FC \uC2DC\uACF5 \uC608\uC815", stats.week, "today"],
+    ["\uC2DC\uACF5\uC644\uB8CC", stats.complete, "complete"],
+    ["\uC644\uB8CC\uC0AC\uC9C4 \uD544\uC694", stats.completePhotoMissing, "photo"],
+    ["\uC2DC\uACF5\uAE30\uC0AC \uBBF8\uBC30\uC815", stats.unassigned, "unassigned"],
+    ["\uC9C0\uAE09\uC2DC\uACF5\uBE44 \uD569\uACC4", formatMoney(paymentTotal), "today"],
+  ];
+  const itemRows = [
+    ["\uC8FC\uBC29 \uC9C0\uAE09", dashboard.itemTotals.kitchen],
+    ["\uBD99\uBC15\uC774 \uC9C0\uAE09", dashboard.itemTotals.builtIn],
+    ["\uD604\uAD00 \uC9C0\uAE09", dashboard.itemTotals.entrance],
+    ["\uCD94\uAC00 \uC9C0\uAE09", dashboard.itemTotals.extra],
+    ["\uCD1D \uC9C0\uAE09", dashboard.itemTotals.total],
+  ];
+
+  return (
+    <section className="space-y-3 rounded-3xl border bg-white p-4 shadow-sm md:p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-black text-emerald-600">{"\uC9C0\uAE09\uC2DC\uACF5\uBE44 \uC694\uC57D"}</p>
+          <h2 className="mt-1 text-lg font-black text-slate-900">{"\uBC30\uC815\uD604\uC7A5 \uC815\uC0B0 \uD604\uD669"}</h2>
+        </div>
+        {selectedEngineer ? (
+          <button type="button" onClick={onClearEngineer} className="rounded-full border px-3 py-1.5 text-xs font-black text-slate-600">
+            {"\uD544\uD130 \uD574\uC81C"}
+          </button>
+        ) : null}
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
+        {summaryCards.map(([label, value, tab]) => (
+          <button key={label} type="button" onClick={() => onSelectSummary?.(tab)} className="rounded-2xl border border-slate-100 bg-slate-50 p-3 text-left active:scale-[0.99]">
+            <p className="text-[11px] font-black text-slate-400">{label}</p>
+            <p className="mt-1 text-lg font-black text-slate-900">{value}</p>
+          </button>
+        ))}
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-2">
+        <div className="rounded-2xl border border-slate-100 p-3">
+          <h3 className="text-sm font-black text-slate-900">{"\uC544\uC774\uD15C\uBCC4 \uC9C0\uAE09\uC2DC\uACF5\uBE44"}</h3>
+          <div className="mt-3 space-y-2">
+            {itemRows.map(([label, value]) => (
+              <div key={label} className="flex items-center justify-between gap-3 text-sm">
+                <span className="font-bold text-slate-500">{label}</span>
+                <span className="font-black text-slate-900">{formatMoney(value)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-slate-100 p-3">
+          <h3 className="text-sm font-black text-slate-900">{"\uC2DC\uACF5\uAE30\uC0AC\uBCC4 \uC9C0\uAE09\uC2DC\uACF5\uBE44"}</h3>
+          <div className="mt-3 space-y-2">
+            {dashboard.engineerRows.length ? dashboard.engineerRows.map((row) => (
+              <button
+                key={row.name}
+                type="button"
+                onClick={() => onSelectEngineer(row.name)}
+                className={`flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2 text-left ${
+                  selectedEngineer === row.name ? "border-blue-300 bg-blue-50" : "border-slate-100 bg-slate-50"
+                }`}
+              >
+                <span>
+                  <span className="block text-sm font-black text-slate-900">{row.name}</span>
+                  <span className="text-xs font-bold text-slate-400">{row.count}{"\uAC74"}</span>
+                </span>
+                <span className="text-sm font-black text-slate-900">{formatMoney(row.total)}</span>
+              </button>
+            )) : (
+              <div className="rounded-xl border border-dashed p-4 text-center text-sm font-bold text-slate-400">
+                {"\uBC30\uC815\uB41C \uC2DC\uACF5\uAE30\uC0AC\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4."}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function ConstructionCalendar({ jobs = [], selectedMonth = "", onSelectTab }) {
   const days = useMemo(() => {
     const map = new Map();
@@ -1594,7 +1893,6 @@ function JobDetailModal({ job, user, onClose, onUpload, onHistory, onAssign, eng
             <DetailRow label="시공기사" value={job.engineer || "미배정"} />
             <DetailRow label="시공기사 연락처" value={<PhoneLink value={job.engineerPhone} />} />
             {user.role === "partner" ? <DetailRow label="지급시공비" value={formatMoney(partnerPaymentAmount(job))} /> : null}
-            {job.extraCostMemo ? <DetailRow label="계약 추가비용 내용" value={job.extraCostMemo} /> : null}
             {user.role === "partner" && job.extraPaymentMemo ? <DetailRow label="지급 추가비용 내용" value={job.extraPaymentMemo} /> : null}
           </DetailBox>
         </div>
