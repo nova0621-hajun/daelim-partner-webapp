@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Building2,
   Camera,
+  CalendarDays,
   CheckCircle2,
   ClipboardList,
   Copy,
@@ -732,12 +733,12 @@ export default function PartnerInstallerPortal() {
       });
 
       if (!result.success) {
-        setActionMessage(result.message || "엔지니어 배정 저장에 실패했습니다.");
+        setActionMessage(result.message || "시공기사 배정 저장에 실패했습니다.");
         return;
       }
 
       applyJobUpdate(key, assignedPatch);
-      setActionMessage("엔지니어 배정이 저장되었습니다.");
+      setActionMessage("시공기사 배정이 저장되었습니다.");
       refreshJobsQuietly();
     } catch (err) {
       console.error(err);
@@ -747,7 +748,7 @@ export default function PartnerInstallerPortal() {
         refreshJobsQuietly(1800);
         refreshJobsQuietly(4500);
       } else {
-        setActionMessage(err.message || "엔지니어 배정 API 연결 실패");
+        setActionMessage(err.message || "시공기사 배정 API 연결 실패");
       }
     } finally {
       setAssigningJobId("");
@@ -1042,7 +1043,7 @@ export default function PartnerInstallerPortal() {
           setSelectedMonth={setSelectedMonth}
           totalCount={visibleJobs.length}
         />
-        <PortalSummary user={user} stats={stats} paymentTotal={paymentTotal} selectedMonth={selectedMonth} />
+        <ConstructionCalendar jobs={monthVisibleJobs} selectedMonth={selectedMonth} onSelectTab={selectTab} />
         <StatGrid user={user} stats={stats} setActiveTab={selectTab} />
         <TabBar user={user} activeTab={activeTab} setActiveTab={selectTab} />
 
@@ -1331,9 +1332,9 @@ function PortalHeader({ user, onLogout }) {
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-xs font-black text-slate-400">대림바스&키친</p>
-          <h1 className="mt-1 text-2xl font-black tracking-tight">{user.role === "partner" ? "협력사 포털" : "시공엔지니어 포털"}</h1>
+          <h1 className="mt-1 text-2xl font-black tracking-tight">{user.role === "partner" ? "협력사 포털" : "시공기사 포털"}</h1>
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            <Badge className={user.role === "partner" ? "border-slate-300 bg-slate-900 text-white" : "border-blue-200 bg-blue-50 text-blue-700"}>{user.role === "partner" ? "협력사" : "시공엔지니어"}</Badge>
+            <Badge className={user.role === "partner" ? "border-slate-300 bg-slate-900 text-white" : "border-blue-200 bg-blue-50 text-blue-700"}>{user.role === "partner" ? "협력사" : "시공기사"}</Badge>
             <span className="text-sm font-bold text-slate-600">{user.name}</span>
           </div>
         </div>
@@ -1375,45 +1376,61 @@ function MonthFilter({ months, selectedMonth, setSelectedMonth, totalCount }) {
   );
 }
 
-function PortalSummary({ user, stats, paymentTotal, selectedMonth }) {
-  const rows = user.role === "partner"
-    ? [
-        ["이번달 배정", stats.total],
-        ["이번주 시공", stats.week],
-        ["시공완료", stats.complete],
-        ["미완료", stats.incomplete],
-        ["기사 미배정", stats.unassigned],
-      ]
-    : [
-        ["이번달 배정", stats.total],
-        ["이번주 시공", stats.week],
-        ["시공완료", stats.complete],
-        ["미완료", stats.incomplete],
-      ];
+function ConstructionCalendar({ jobs = [], selectedMonth = "", onSelectTab }) {
+  const days = useMemo(() => {
+    const map = new Map();
+
+    jobs.forEach((job) => {
+      const date = parseJobDate(job.installDate);
+      if (!date) return;
+
+      const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+      const rows = map.get(key) || [];
+      rows.push(job);
+      map.set(key, rows);
+    });
+
+    return Array.from(map.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .slice(0, 10)
+      .map(([date, rows]) => ({ date, rows }));
+  }, [jobs]);
+
+  const emptyText = selectedMonth === "all" ? "표시할 시공 일정이 없습니다." : `${selectedMonth} 시공 일정이 없습니다.`;
 
   return (
-    <section className="rounded-3xl border bg-white p-4 shadow-sm">
+    <section className="rounded-3xl border bg-white p-4 shadow-sm md:p-5">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-xs font-black text-slate-500">현장 요약</p>
+          <p className="text-xs font-black text-blue-600">시공 캘린더</p>
           <h2 className="mt-1 text-lg font-black text-slate-900">
-            {selectedMonth === "all" ? "\uC804\uCCB4 \uC6D4" : selectedMonth}
+            {selectedMonth === "all" ? "전체 월 시공 일정" : `${selectedMonth} 시공 일정`}
           </h2>
         </div>
-        {user.role === "partner" ? (
-          <div className="text-right">
-            <p className="text-[11px] font-black text-emerald-600">{"\uC9C0\uAE09\uC2DC\uACF5\uBE44 \uD569\uACC4"}</p>
-            <p className="mt-1 text-lg font-black text-emerald-700">{formatMoney(paymentTotal)}</p>
-          </div>
-        ) : null}
+        <CalendarDays className="h-5 w-5 text-blue-500" />
       </div>
-      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4 md:grid-cols-5">
-        {rows.map(([label, value]) => (
-          <div key={label} className="rounded-2xl bg-slate-50 px-3 py-3">
-            <p className="text-[11px] font-black text-slate-500">{label}</p>
-            <p className="mt-1 text-xl font-black text-slate-900">{value}</p>
+
+      <div className="mt-4 space-y-2">
+        {days.length ? days.map(({ date, rows }) => (
+          <button
+            key={date}
+            type="button"
+            onClick={() => onSelectTab?.("today")}
+            className="flex w-full items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3 text-left active:scale-[0.99]"
+          >
+            <div>
+              <p className="text-sm font-black text-slate-900">{shortDate(date)}</p>
+              <p className="mt-1 line-clamp-1 text-xs font-bold text-slate-500">
+                {rows.slice(0, 3).map((job) => job.customer).filter(Boolean).join(", ")}
+              </p>
+            </div>
+            <Badge className="border-blue-200 bg-blue-50 text-blue-700">{rows.length}건</Badge>
+          </button>
+        )) : (
+          <div className="rounded-2xl border border-dashed p-5 text-center text-sm font-bold text-slate-400">
+            {emptyText}
           </div>
-        ))}
+        )}
       </div>
     </section>
   );
@@ -1422,7 +1439,7 @@ function PortalSummary({ user, stats, paymentTotal, selectedMonth }) {
 function StatGrid({ user, stats, setActiveTab }) {
   const cards = user.role === "partner" ? [
     ["전체 현장", stats.total, "today", ClipboardList],
-    ["엔지니어 미배정", stats.unassigned, "unassigned", Users],
+    ["시공기사 미배정", stats.unassigned, "unassigned", Users],
     ["완료사진 필요", stats.completePhotoMissing, "photo", Camera],
     ["완료 현장", stats.complete, "complete", CheckCircle2],
   ] : [
@@ -1505,7 +1522,7 @@ function JobCard({ job, user, onDetail, onUpload, onHistory, onComplete, complet
       ) : null}
 
       {needsEngineer ? (
-        <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs font-bold text-amber-700">엔지니어 배정이 필요한 현장입니다.</div>
+        <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs font-bold text-amber-700">시공기사 배정이 필요한 현장입니다.</div>
       ) : null}
 
       {!isComplete && !completePhotoReady && !locked ? (
@@ -1555,7 +1572,7 @@ function JobDetailModal({ job, user, onClose, onUpload, onHistory, onAssign, eng
         {locked || (!isComplete && !completePhotoReady) ? (
           <div className={`mt-4 rounded-3xl border p-4 text-sm font-bold leading-relaxed ${locked ? "border-rose-200 bg-rose-50 text-rose-700" : "border-orange-200 bg-orange-50 text-orange-700"}`}>
             {locked
-              ? "마스터가 잠금 처리한 현장입니다. 잠금 해제 전까지 사진등록, 이력등록, 완료보고, 엔지니어 배정을 사용할 수 없습니다."
+              ? "마스터가 잠금 처리한 현장입니다. 잠금 해제 전까지 사진등록, 이력등록, 완료보고, 시공기사 배정을 사용할 수 없습니다."
               : "완료보고 전 완료사진 1장 이상 등록이 필요합니다."}
           </div>
         ) : null}
@@ -1574,8 +1591,8 @@ function JobDetailModal({ job, user, onClose, onUpload, onHistory, onAssign, eng
             <DetailRow label="시공기간" value={installPeriod(job)} />
             <DetailRow label="대리석" value={shortDate(job.stoneDate)} />
             <DetailRow label="협력사" value={job.partner} />
-            <DetailRow label="시공엔지니어" value={job.engineer || "미배정"} />
-            <DetailRow label="엔지니어 연락처" value={<PhoneLink value={job.engineerPhone} />} />
+            <DetailRow label="시공기사" value={job.engineer || "미배정"} />
+            <DetailRow label="시공기사 연락처" value={<PhoneLink value={job.engineerPhone} />} />
             {user.role === "partner" ? <DetailRow label="지급시공비" value={formatMoney(partnerPaymentAmount(job))} /> : null}
             {job.extraCostMemo ? <DetailRow label="계약 추가비용 내용" value={job.extraCostMemo} /> : null}
             {user.role === "partner" && job.extraPaymentMemo ? <DetailRow label="지급 추가비용 내용" value={job.extraPaymentMemo} /> : null}
@@ -1584,10 +1601,10 @@ function JobDetailModal({ job, user, onClose, onUpload, onHistory, onAssign, eng
 
         {canAssignEngineer ? (
           <div className="mt-4 rounded-3xl border border-blue-100 bg-blue-50 p-4">
-            <h3 className="font-black text-blue-900">엔지니어 배정</h3>
+            <h3 className="font-black text-blue-900">시공기사 배정</h3>
             <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
               <select value={engineer} onChange={(e) => setInstaller(e.target.value)} disabled={locked || assigning} className="rounded-2xl border bg-white px-3 py-3 text-sm font-bold disabled:opacity-60">
-                <option value="">엔지니어 선택</option>
+                <option value="">시공기사 선택</option>
                 {engineerNames.map((name) => <option key={name} value={name}>{name}</option>)}
               </select>
               <button onClick={() => engineer && onAssign(job, engineer)} disabled={locked || !engineer || assigning} className="flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-sm font-black text-white disabled:bg-blue-300">
