@@ -418,8 +418,11 @@ export default function PartnerInstallerPortal() {
 
   const fetchPartnerJobs = async (loginUser, options = {}) => {
     try {
+      const authPassword = options.authPassword || loginUser.authPassword || partnerAuthPassword || "";
       const result = await apiPost({
         action: "getPartnerJobs",
+        loginId: loginUser.loginId || loginUser.id || loginUser.name || "",
+        password: authPassword,
         role: loginUser.role,
         partnerName: loginUser.partnerName,
         engineerName: loginUser.engineerName || "",
@@ -442,7 +445,8 @@ export default function PartnerInstallerPortal() {
     if (!loginUser?.partnerName) return [];
 
     try {
-      const response = await fetch(`${WEBAPP_URL}?action=partnerInstallerData&t=${Date.now()}`);
+      const authPassword = loginUser.authPassword || partnerAuthPassword || "";
+      const response = await fetch(`${WEBAPP_URL}?action=partnerInstallerData&loginId=${encodeURIComponent(loginUser.loginId || loginUser.id || loginUser.name || "")}&password=${encodeURIComponent(authPassword)}&t=${Date.now()}`);
       const result = await response.json();
 
       if (!result.success) return [];
@@ -462,7 +466,7 @@ export default function PartnerInstallerPortal() {
         const savedSession = readPartnerSession();
         if (!savedSession?.user) return;
 
-        const savedUser = savedSession.user;
+        const savedUser = { ...savedSession.user, authPassword: savedSession.authPassword || "" };
 
         const [rows, engineers] = await Promise.all([
           fetchPartnerJobs(savedUser, { silent: true }),
@@ -529,6 +533,7 @@ export default function PartnerInstallerPortal() {
       engineerPhone: result.engineerPhone || result.phone || "",
       passwordStatus: result.passwordStatus || "",
       mustChangePassword: result.mustChangePassword === true,
+      authPassword: trimmedPw,
     };
 
     if (!loginUser.role) {
@@ -604,6 +609,7 @@ export default function PartnerInstallerPortal() {
       ...user,
       passwordStatus: "정상",
       mustChangePassword: false,
+      authPassword: nextPassword,
     };
 
     const [rows, engineers] = await Promise.all([
@@ -751,6 +757,8 @@ export default function PartnerInstallerPortal() {
     try {
       const result = await apiPost({
         action: "assignEngineer",
+        loginId: user.loginId || user.id || user.name || "",
+        password: partnerAuthPassword || user.authPassword || "",
         rowNumber: job.rowNumber || "",
         jobId: job.id || job.jobId || "",
         id: job.id || "",
@@ -804,6 +812,8 @@ export default function PartnerInstallerPortal() {
     try {
       const result = await apiPost({
         action: "completeJob",
+        loginId: user.loginId || user.id || user.name || "",
+        password: partnerAuthPassword || user.authPassword || "",
         rowNumber: job.rowNumber || "",
         jobId: job.id || job.jobId || "",
         id: job.id || "",
@@ -859,6 +869,8 @@ export default function PartnerInstallerPortal() {
     try {
       const result = await apiPost({
         action: "addHistory",
+        loginId: user.loginId || user.id || user.name || "",
+        password: partnerAuthPassword || user.authPassword || "",
         rowNumber: job.rowNumber || "",
         jobId: job.id || job.jobId || "",
         id: job.id || "",
@@ -927,6 +939,8 @@ export default function PartnerInstallerPortal() {
         setUploadProgress(`업로드 중 ${i + 1}/${fileList.length}`);
         const result = await apiPost({
           action: "uploadPhoto",
+          loginId: user.loginId || user.id || user.name || "",
+          password: partnerAuthPassword || user.authPassword || "",
           month: job.month || job.sheet || "",
           rowNumber: job.rowNumber || "",
           category,
