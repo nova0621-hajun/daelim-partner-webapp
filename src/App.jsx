@@ -79,7 +79,19 @@ const STATUS_CLASS = {
 const PHOTO_CATEGORY_OPTIONS = ["계약도면", "시공전", "완료사진", "기타"];
 const PHOTO_UPLOAD_ACCEPT = ".jpg,.jpeg,.jfif,.png,.webp,.heic,.heif,.gif,.bmp,.tif,.tiff,.avif";
 const DRAWING_UPLOAD_ACCEPT = `${PHOTO_UPLOAD_ACCEPT},.pdf`;
+const JOB_PAGE_SIZE = 15;
 
+function isRefinishingItem(value) {
+  return String(value || "").trim() === "재마감";
+}
+
+function isRefinishingJob(job) {
+  return isRefinishingItem(job?.item);
+}
+
+function RefinishingBadge() {
+  return <Badge className="border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700">재마감</Badge>;
+}
 function getUploadAccept(category) {
   return category === "계약도면" ? DRAWING_UPLOAD_ACCEPT : PHOTO_UPLOAD_ACCEPT;
 }
@@ -292,7 +304,10 @@ export default function PartnerInstallerPortal() {
   const [engineerRequestForm, setEngineerRequestForm] = useState({ name: "", phone: "" });
   const [engineerRequestLoading, setEngineerRequestLoading] = useState(false);
   const [engineerRequestMessage, setEngineerRequestMessage] = useState("");
+  const [showEngineerRequest, setShowEngineerRequest] = useState(false);
+  const [visibleJobLimit, setVisibleJobLimit] = useState(JOB_PAGE_SIZE);
   const listRef = useRef(null);
+  const engineerRequestRef = useRef(null);
 
   useEffect(() => {
     if (!detailJob?.month || !detailJob?.rowNumber) return;
@@ -379,10 +394,16 @@ export default function PartnerInstallerPortal() {
     incomplete: monthVisibleJobs.filter((job) => job.status !== "\uC2DC\uACF5\uC644\uB8CC").length,
   }), [monthVisibleJobs]);
 
+  const pagedJobs = useMemo(() => filteredJobs.slice(0, visibleJobLimit), [filteredJobs, visibleJobLimit]);
+
+  useEffect(() => {
+    setVisibleJobLimit(JOB_PAGE_SIZE);
+  }, [activeTab, selectedMonth, selectedCalendarDate, selectedEngineerFilter, user?.role]);
+
   const groupedJobs = useMemo(() => {
     const groups = new Map();
 
-    filteredJobs.forEach((job) => {
+    pagedJobs.forEach((job) => {
       const month = job.month || "월 미지정";
       const rows = groups.get(month) || [];
       rows.push(job);
@@ -390,7 +411,7 @@ export default function PartnerInstallerPortal() {
     });
 
     return Array.from(groups.entries()).map(([month, rows]) => ({ month, rows }));
-  }, [filteredJobs]);
+  }, [pagedJobs]);
 
   const paymentTotal = useMemo(() => {
     if (user?.role !== "partner") return 0;
@@ -748,7 +769,7 @@ export default function PartnerInstallerPortal() {
     const assignedPatch = {
       engineer,
       engineerPhone: nextEngineerPhone,
-      status: "기사배정완료",
+      status: "시공계획확정",
     };
 
     setAssigningJobId(key);
@@ -1041,6 +1062,17 @@ export default function PartnerInstallerPortal() {
   );
 }
 
+  const toggleEngineerRequestPanel = () => {
+    setShowEngineerRequest((current) => {
+      const next = !current;
+      if (next) {
+        window.setTimeout(() => {
+          engineerRequestRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+        }, 80);
+      }
+      return next;
+    });
+  };
   if (screen === "login") {
     if (restoringSession) {
       return (
@@ -1071,13 +1103,28 @@ export default function PartnerInstallerPortal() {
       <div className="mx-auto max-w-5xl space-y-4">
         <PortalHeader user={user} onLogout={handleLogout} />
         {user.role === "partner" ? (
-          <EngineerAccountRequestPanel
-            form={engineerRequestForm}
-            setForm={setEngineerRequestForm}
-            loading={engineerRequestLoading}
-            message={engineerRequestMessage}
-            onSubmit={submitEngineerAccountRequest}
-          />
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={toggleEngineerRequestPanel}
+              className={`flex items-center justify-center gap-2 rounded-2xl border px-4 py-3 text-xs font-black shadow-sm active:scale-[0.99] ${showEngineerRequest ? "border-slate-300 bg-slate-900 text-white" : "border-slate-200 bg-white text-slate-700"}`}
+            >
+              <Users className="h-4 w-4" />
+              시공기사 계정신청
+            </button>
+          </div>
+        ) : null}
+        {user.role === "partner" && showEngineerRequest ? (
+          <div ref={engineerRequestRef} className="scroll-mt-4">
+            <EngineerAccountRequestPanel
+              form={engineerRequestForm}
+              setForm={setEngineerRequestForm}
+              loading={engineerRequestLoading}
+              message={engineerRequestMessage}
+              onSubmit={submitEngineerAccountRequest}
+              onCollapse={() => setShowEngineerRequest(false)}
+            />
+          </div>
         ) : null}
         <MonthFilter
           months={monthOptions}
@@ -1130,12 +1177,12 @@ export default function PartnerInstallerPortal() {
                 <div className="mt-2 flex flex-wrap items-center gap-2">
                   {selectedCalendarDate ? (
                     <Badge className="border-blue-200 bg-blue-50 text-blue-700">
-                      {selectedCalendarDate} {"\uC2DC\uACF5 \uD604\uC7A5"}
+                      선택 날짜: {selectedCalendarDate}
                     </Badge>
                   ) : null}
                   {selectedEngineerFilter ? (
                     <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700">
-                      {selectedEngineerFilter} {"\uC2DC\uACF5\uAE30\uC0AC \uD604\uC7A5"}
+                      선택 기사: {selectedEngineerFilter}
                     </Badge>
                   ) : null}
                   <button
@@ -1143,6 +1190,10 @@ export default function PartnerInstallerPortal() {
                     onClick={() => {
                       setSelectedCalendarDate("");
                       setSelectedEngineerFilter("");
+                      setActiveTab("today");
+                      window.setTimeout(() => {
+                        listRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+                      }, 60);
                     }}
                     className="rounded-full border px-3 py-1 text-[11px] font-black text-slate-600"
                   >
@@ -1187,6 +1238,15 @@ export default function PartnerInstallerPortal() {
           )) : (
             <div className="rounded-3xl border border-dashed p-8 text-center text-sm font-bold text-slate-400">표시할 현장이 없습니다.</div>
           )}
+          {filteredJobs.length > pagedJobs.length ? (
+            <button
+              type="button"
+              onClick={() => setVisibleJobLimit((current) => current + JOB_PAGE_SIZE)}
+              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-700 shadow-sm active:scale-[0.99]"
+            >
+              더보기 {pagedJobs.length}/{filteredJobs.length}
+            </button>
+          ) : null}
         </section>
       </div>
 
@@ -1271,7 +1331,7 @@ function LoginForm({ id, password, setId, setPassword, message, loading = false,
   );
 }
 
-function EngineerAccountRequestPanel({ form, setForm, loading = false, message = "", onSubmit }) {
+function EngineerAccountRequestPanel({ form, setForm, loading = false, message = "", onSubmit, onCollapse }) {
   const update = (key, value) => {
     setForm((prev) => ({
       ...prev,
@@ -1280,7 +1340,7 @@ function EngineerAccountRequestPanel({ form, setForm, loading = false, message =
   };
 
   return (
-    <section className="rounded-3xl border bg-white p-4 shadow-sm md:p-5">
+    <section className="rounded-3xl border bg-white p-3 shadow-sm md:p-5">
       <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
         <div>
           <p className="text-xs font-black text-slate-400">ENGINEER ACCOUNT</p>
@@ -1296,6 +1356,15 @@ function EngineerAccountRequestPanel({ form, setForm, loading = false, message =
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Users className="h-4 w-4" />}
           {loading ? "요청 중" : "요청 보내기"}
         </button>
+        {onCollapse ? (
+          <button
+            type="button"
+            onClick={onCollapse}
+            className="rounded-2xl border bg-white px-4 py-3 text-sm font-black text-slate-600"
+          >
+            접기
+          </button>
+        ) : null}
       </div>
 
       <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -1522,7 +1591,7 @@ function MonthlyConstructionCalendar({ jobs = [], selectedMonth = "", selectedDa
   }, [jobs, selectedMonth]);
 
   return (
-    <section className="rounded-3xl border bg-white p-4 shadow-sm md:p-5">
+    <section className="rounded-3xl border bg-white p-3 shadow-sm md:p-5">
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-xs font-black text-blue-600">{"\uC2DC\uACF5 \uCE98\uB9B0\uB354"}</p>
@@ -1536,25 +1605,25 @@ function MonthlyConstructionCalendar({ jobs = [], selectedMonth = "", selectedDa
         <CalendarDays className="h-5 w-5 text-blue-500" />
       </div>
 
-      <div className="mt-4 grid grid-cols-7 gap-1 text-center text-[11px] font-black text-slate-400">
+      <div className="mt-3 grid grid-cols-7 gap-0.5 text-center text-[10px] font-black text-slate-400">
         {["\uC77C", "\uC6D4", "\uD654", "\uC218", "\uBAA9", "\uAE08", "\uD1A0"].map((day) => (
           <div key={day} className="py-1">{day}</div>
         ))}
       </div>
 
-      <div className="mt-1 grid grid-cols-7 gap-1">
+      <div className="mt-1 grid grid-cols-7 gap-0.5 md:gap-1">
         {calendarData.cells.map((cell) => (
           <button
             key={cell.key}
             type="button"
             onClick={() => cell.rows.length && onSelectDate?.(cell.key)}
-            className={`min-h-[88px] rounded-2xl border p-1.5 text-left transition active:scale-[0.99] md:min-h-[112px] ${
+            className={`min-h-[54px] rounded-xl border p-1 text-left transition active:scale-[0.99] md:min-h-[96px] md:rounded-2xl md:p-1.5 ${
               cell.inMonth ? "border-slate-100 bg-slate-50" : "border-slate-50 bg-white text-slate-300"
             } ${cell.rows.length ? "hover:border-blue-200 hover:bg-blue-50" : ""} ${
               selectedDate === cell.key ? "border-blue-400 bg-blue-50 ring-2 ring-blue-100" : ""
             }`}
           >
-            <div className="flex items-center justify-between gap-1">
+            <div className="flex items-center justify-between gap-0.5">
               <span className={`text-xs font-black ${cell.isToday ? "rounded-full bg-blue-600 px-1.5 py-0.5 text-white" : "text-slate-600"}`}>
                 {cell.date.getDate()}
               </span>
@@ -1564,14 +1633,14 @@ function MonthlyConstructionCalendar({ jobs = [], selectedMonth = "", selectedDa
                 </span>
               ) : null}
             </div>
-            <div className="mt-1 space-y-1">
+            <div className="mt-0.5 space-y-0.5 md:mt-1 md:space-y-1">
               {cell.rows.slice(0, 2).map((job) => (
-                <div key={`${cell.key}-${job.month}-${job.rowNumber}`} className="truncate rounded-lg bg-white px-1.5 py-1 text-[10px] font-black text-slate-700 shadow-sm">
+                <div key={`${cell.key}-${job.month}-${job.rowNumber}`} className="hidden truncate rounded-lg bg-white px-1 py-0.5 text-[9px] font-black text-slate-700 shadow-sm sm:block md:px-1.5 md:py-1 md:text-[10px]">
                   {job.customer || "\uD604\uC7A5"}
                 </div>
               ))}
               {cell.rows.length > 2 ? (
-                <div className="px-1.5 text-[10px] font-black text-blue-600">+{cell.rows.length - 2}</div>
+                <div className="px-1 text-[9px] font-black text-blue-600 md:px-1.5 md:text-[10px]">+{cell.rows.length - 2}</div>
               ) : null}
             </div>
           </button>
@@ -1624,7 +1693,7 @@ function PartnerPaymentDashboard({ jobs = [], stats, paymentTotal, selectedEngin
   ];
 
   return (
-    <section className="space-y-3 rounded-3xl border bg-white p-4 shadow-sm md:p-5">
+    <section className="space-y-3 rounded-3xl border bg-white p-3 shadow-sm md:p-5">
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-xs font-black text-emerald-600">{"\uC9C0\uAE09\uC2DC\uACF5\uBE44 \uC694\uC57D"}</p>
@@ -1712,7 +1781,7 @@ function ConstructionCalendar({ jobs = [], selectedMonth = "", onSelectTab }) {
   const emptyText = selectedMonth === "all" ? "표시할 시공 일정이 없습니다." : `${selectedMonth} 시공 일정이 없습니다.`;
 
   return (
-    <section className="rounded-3xl border bg-white p-4 shadow-sm md:p-5">
+    <section className="rounded-3xl border bg-white p-3 shadow-sm md:p-5">
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-xs font-black text-blue-600">시공 캘린더</p>
@@ -1737,7 +1806,7 @@ function ConstructionCalendar({ jobs = [], selectedMonth = "", onSelectTab }) {
                 {rows.slice(0, 3).map((job) => job.customer).filter(Boolean).join(", ")}
               </p>
             </div>
-            <Badge className="border-blue-200 bg-blue-50 text-blue-700">{rows.length}건</Badge>
+            <div className="flex flex-col items-end gap-1">{rows.some(isRefinishingJob) ? <RefinishingBadge /> : null}<Badge className="border-blue-200 bg-blue-50 text-blue-700">{rows.length}건</Badge></div>
           </button>
         )) : (
           <div className="rounded-2xl border border-dashed p-5 text-center text-sm font-bold text-slate-400">
@@ -1765,12 +1834,12 @@ function StatGrid({ user, stats, setActiveTab }) {
   return (
     <section className="grid grid-cols-2 gap-2 md:grid-cols-4">
       {cards.map(([title, value, tab, Icon]) => (
-        <button key={title} onClick={() => setActiveTab(tab)} className="rounded-3xl border bg-white p-4 text-left shadow-sm active:scale-[0.99]">
+        <button key={title} onClick={() => setActiveTab(tab)} className="rounded-2xl border bg-white p-3 text-left shadow-sm active:scale-[0.99] md:rounded-3xl md:p-4">
           <div className="flex items-center justify-between gap-2">
             <p className="text-xs font-black text-slate-500">{title}</p>
             <Icon className="h-4 w-4 text-slate-400" />
           </div>
-          <p className="mt-3 text-3xl font-black">{value}</p>
+          <p className="mt-2 text-2xl font-black md:mt-3 md:text-3xl">{value}</p>
         </button>
       ))}
     </section>
@@ -1800,7 +1869,7 @@ function JobCard({ job, user, onDetail, onUpload, onHistory, onComplete, complet
   const needsEngineer = user.role === "partner" && (!job.engineer || job.engineer === "미배정" || job.status === "기사배정요청");
 
   return (
-    <article className="rounded-3xl border bg-white p-4 shadow-sm">
+    <article className="rounded-3xl border bg-white p-3 shadow-sm md:p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <p className="truncate text-lg font-black">{job.customer}</p>
@@ -1809,10 +1878,11 @@ function JobCard({ job, user, onDetail, onUpload, onHistory, onComplete, complet
         <div className="flex shrink-0 flex-col items-end gap-1">
           {locked ? <Badge className="border-rose-200 bg-rose-50 text-rose-700">잠금</Badge> : null}
           <Badge className={STATUS_CLASS[job.status] || "border-slate-200 bg-slate-100 text-slate-600"}>{job.status}</Badge>
+          {isRefinishingJob(job) ? <RefinishingBadge /> : null}
         </div>
       </div>
 
-      <div className="mt-4 grid grid-cols-2 gap-2 rounded-2xl bg-slate-50 p-3 text-sm">
+      <div className="mt-3 grid grid-cols-2 gap-2 rounded-2xl bg-slate-50 p-2.5 text-sm md:mt-4 md:p-3">
         <Info label="시공일" value={installPeriod(job)} />
         <Info label="아이템" value={job.item} />
         <Info label="담당자" value={job.manager} />
@@ -1820,7 +1890,7 @@ function JobCard({ job, user, onDetail, onUpload, onHistory, onComplete, complet
         {user.role === "partner" ? <Info label="지급시공비" value={formatMoney(partnerPaymentAmount(job))} /> : null}
       </div>
 
-      <div className="mt-4 grid grid-cols-2 gap-2 md:grid-cols-4">
+      <div className="mt-3 grid grid-cols-2 gap-2 md:mt-4 md:grid-cols-4">
         <button onClick={onDetail} className="rounded-2xl bg-slate-900 px-3 py-3 text-xs font-black text-white">상세보기</button>
         <button onClick={onUpload} disabled={locked} className="rounded-2xl border bg-white px-3 py-3 text-xs font-black text-slate-700 disabled:bg-slate-100 disabled:text-slate-400">사진등록</button>
         <button onClick={onHistory} disabled={locked} className="rounded-2xl border bg-white px-3 py-3 text-xs font-black text-slate-700 disabled:bg-slate-100 disabled:text-slate-400">이력등록</button>
@@ -1866,7 +1936,8 @@ function JobDetailModal({ job, user, onClose, onUpload, onHistory, onAssign, eng
             <div className="mt-2 flex flex-wrap gap-2">
               {locked ? <Badge className="border-rose-200 bg-rose-50 text-rose-700">관리자 잠금</Badge> : null}
               <Badge className={STATUS_CLASS[job.status] || "border-slate-200 bg-slate-100 text-slate-600"}>{job.status}</Badge>
-              <Badge className="border-slate-200 bg-slate-50 text-slate-600">{job.item}</Badge>
+          {isRefinishingJob(job) ? <RefinishingBadge /> : null}
+              {isRefinishingJob(job) ? <RefinishingBadge /> : <Badge className="border-slate-200 bg-slate-50 text-slate-600">{job.item}</Badge>}
             </div>
           </div>
           <button onClick={onClose} className="rounded-2xl border p-2 text-slate-500"><X className="h-5 w-5" /></button>
