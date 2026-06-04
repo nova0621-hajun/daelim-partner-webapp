@@ -1219,6 +1219,7 @@ export default function PartnerInstallerPortal() {
           jobs={monthVisibleJobs}
           selectedMonth={selectedMonth}
           selectedDate={selectedCalendarDate}
+          userRole={user.role}
           onSelectDate={(dateKey) => {
             setSelectedEngineerFilter("");
             setSelectedCalendarDate(dateKey);
@@ -1652,8 +1653,9 @@ function MonthFilter({ months, selectedMonth, setSelectedMonth, totalCount }) {
   );
 }
 
-function MonthlyConstructionCalendar({ jobs = [], selectedMonth = "", selectedDate = "", onSelectDate }) {
+function MonthlyConstructionCalendar({ jobs = [], selectedMonth = "", selectedDate = "", userRole = "", onSelectDate }) {
   const calendarData = useMemo(() => {
+    const canHighlightUnassigned = userRole === "partner";
     const jobMonth = jobs
       .map((job) => parseJobDate(job.installDate))
       .find(Boolean);
@@ -1685,12 +1687,18 @@ function MonthlyConstructionCalendar({ jobs = [], selectedMonth = "", selectedDa
       date.setDate(start.getDate() + index);
       const key = toDateKey(date);
 
+      const rows = jobMap.get(key) || [];
+      const hasUnassigned = canHighlightUnassigned && rows.some((job) => isUnassignedEngineerValue(job.engineer) || job.status === "기사배정요청");
+      const hasRefinishing = rows.some(isRefinishingJob);
+
       return {
         date,
         key,
         inMonth: date.getMonth() === monthIndex,
         isToday: key === toDateKey(today),
-        rows: jobMap.get(key) || [],
+        rows,
+        hasUnassigned,
+        hasRefinishing,
       };
     });
 
@@ -1699,7 +1707,7 @@ function MonthlyConstructionCalendar({ jobs = [], selectedMonth = "", selectedDa
       cells,
       scheduledCount: Array.from(jobMap.values()).reduce((sum, rows) => sum + rows.length, 0),
     };
-  }, [jobs, selectedMonth]);
+  }, [jobs, selectedMonth, userRole]);
 
   useEffect(() => {
     if (!import.meta.env.DEV || typeof window === "undefined") return;
@@ -1730,6 +1738,10 @@ function MonthlyConstructionCalendar({ jobs = [], selectedMonth = "", selectedDa
               <span className="h-2 w-2 rounded-full bg-orange-500" />
               재마감
             </span>
+            <span className="inline-flex items-center gap-1">
+              <span className="h-2 w-2 rounded-full bg-rose-500" />
+              기사 미배정
+            </span>
           </div>
         </div>
         <CalendarDays className="h-5 w-5 text-blue-500" />
@@ -1749,29 +1761,36 @@ function MonthlyConstructionCalendar({ jobs = [], selectedMonth = "", selectedDa
             onClick={() => cell.rows.length && onSelectDate?.(cell.key)}
             className={`min-h-[66px] rounded-xl border p-1.5 text-left transition active:scale-[0.99] md:min-h-[104px] md:rounded-2xl md:p-2 ${
               cell.inMonth
-                ? cell.rows.some(isRefinishingJob)
-                  ? "border-orange-300 bg-orange-50"
-                  : "border-slate-100 bg-slate-50"
+                ? cell.hasUnassigned
+                  ? "border-rose-300 bg-rose-50"
+                  : cell.hasRefinishing
+                    ? "border-orange-300 bg-orange-50"
+                    : "border-slate-100 bg-slate-50"
                 : "border-slate-50 bg-white text-slate-300"
-            } ${cell.rows.length ? "hover:border-blue-200 hover:bg-blue-50" : ""} ${
+            } ${cell.rows.length ? (cell.hasUnassigned ? "hover:border-rose-400 hover:bg-rose-100" : cell.hasRefinishing ? "hover:border-orange-400 hover:bg-orange-100" : "hover:border-blue-200 hover:bg-blue-50") : ""} ${
               selectedDate === cell.key
-                ? cell.rows.some(isRefinishingJob)
-                  ? "border-orange-500 bg-orange-100 ring-2 ring-orange-200 hover:border-orange-500 hover:bg-orange-100"
-                  : "border-blue-500 bg-blue-50 ring-2 ring-blue-200"
+                ? cell.hasUnassigned
+                  ? "border-rose-500 bg-rose-100 ring-2 ring-rose-200 hover:border-rose-500 hover:bg-rose-100"
+                  : cell.hasRefinishing
+                    ? "border-orange-500 bg-orange-100 ring-2 ring-orange-200 hover:border-orange-500 hover:bg-orange-100"
+                    : "border-blue-500 bg-blue-50 ring-2 ring-blue-200"
                 : ""
             }`}
           >
             <div className="flex items-center justify-between gap-0.5">
               <div className="flex items-center gap-1">
-                <span className={`text-xs font-black ${cell.isToday ? "rounded-full bg-blue-600 px-1.5 py-0.5 text-white" : cell.rows.some(isRefinishingJob) ? "text-orange-700" : "text-slate-600"}`}>
+                <span className={`text-xs font-black ${cell.isToday ? "rounded-full bg-blue-600 px-1.5 py-0.5 text-white" : cell.hasUnassigned ? "text-rose-700" : cell.hasRefinishing ? "text-orange-700" : "text-slate-600"}`}>
                   {cell.date.getDate()}
                 </span>
-                {cell.rows.some(isRefinishingJob) ? (
+                {cell.hasUnassigned ? (
+                  <span className="rounded-full bg-rose-500 px-1 text-[8px] font-black leading-3 text-white">미</span>
+                ) : null}
+                {cell.hasRefinishing ? (
                   <span className="rounded-full bg-orange-500 px-1 text-[8px] font-black leading-3 text-white">재</span>
                 ) : null}
               </div>
               {cell.rows.length ? (
-                <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-black ${cell.rows.some(isRefinishingJob) ? "bg-orange-100 text-orange-700" : "bg-blue-100 text-blue-700"}`}>
+                <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-black ${cell.hasUnassigned ? "bg-rose-100 text-rose-700" : cell.hasRefinishing ? "bg-orange-100 text-orange-700" : "bg-blue-100 text-blue-700"}`}>
                   {cell.rows.length}
                 </span>
               ) : null}
@@ -1781,7 +1800,7 @@ function MonthlyConstructionCalendar({ jobs = [], selectedMonth = "", selectedDa
                 {cell.rows.slice(0, 6).map((job, dotIndex) => (
                   <span
                     key={`${cell.key}-dot-${job.rowNumber || dotIndex}-${dotIndex}`}
-                    className={`h-1.5 w-1.5 rounded-full ring-1 ring-white md:h-2 md:w-2 ${isRefinishingJob(job) ? "bg-orange-500" : "bg-emerald-500"}`}
+                    className={`h-1.5 w-1.5 rounded-full ring-1 ring-white md:h-2 md:w-2 ${cell.hasUnassigned && (isUnassignedEngineerValue(job.engineer) || job.status === "기사배정요청") ? "bg-rose-500" : isRefinishingJob(job) ? "bg-orange-500" : "bg-emerald-500"}`}
                   />
                 ))}
                 {cell.rows.length > 6 ? (
@@ -1791,7 +1810,7 @@ function MonthlyConstructionCalendar({ jobs = [], selectedMonth = "", selectedDa
             ) : null}
             <div className="mt-0.5 space-y-0.5 md:mt-1 md:space-y-1">
               {cell.rows.slice(0, 2).map((job) => (
-                <div key={`${cell.key}-${job.month}-${job.rowNumber}`} className={`hidden truncate rounded-lg bg-white px-1 py-0.5 text-[9px] font-black shadow-sm sm:block md:px-1.5 md:py-1 md:text-[10px] ${isRefinishingJob(job) ? "text-orange-700" : "text-slate-700"}`}>
+                <div key={`${cell.key}-${job.month}-${job.rowNumber}`} className={`hidden truncate rounded-lg bg-white px-1 py-0.5 text-[9px] font-black shadow-sm sm:block md:px-1.5 md:py-1 md:text-[10px] ${cell.hasUnassigned && (isUnassignedEngineerValue(job.engineer) || job.status === "기사배정요청") ? "text-rose-700" : isRefinishingJob(job) ? "text-orange-700" : "text-slate-700"}`}>
                   {job.customer || "\uD604\uC7A5"}
                 </div>
               ))}
