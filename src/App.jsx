@@ -1178,8 +1178,14 @@ export default function PartnerInstallerPortal() {
   return (
     <div className="min-h-screen bg-slate-50 p-3 text-slate-900 md:p-6">
       <div className="mx-auto max-w-5xl space-y-4">
-        <PortalHeader user={user} onLogout={handleLogout} />
-        {user.role === "partner" ? (
+        <PortalHeader
+          user={user}
+          onLogout={handleLogout}
+          canRequestEngineer={user.role === "partner"}
+          showEngineerRequest={showEngineerRequest}
+          onToggleEngineerRequest={toggleEngineerRequestPanel}
+        />
+        {false && user.role === "partner" ? (
           <div className="flex justify-end">
             <button
               type="button"
@@ -1574,10 +1580,16 @@ function PasswordChangeForm({
   );
 }
 
-function PortalHeader({ user, onLogout }) {
+function PortalHeader({
+  user,
+  onLogout,
+  canRequestEngineer = false,
+  showEngineerRequest = false,
+  onToggleEngineerRequest,
+}) {
   return (
     <header className="rounded-3xl bg-white p-5 shadow-sm">
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <p className="text-xs font-black text-slate-400">대림바스&키친</p>
           <h1 className="mt-1 text-2xl font-black tracking-tight">{user.role === "partner" ? "협력사 포털" : "시공기사 포털"}</h1>
@@ -1586,9 +1598,25 @@ function PortalHeader({ user, onLogout }) {
             <span className="text-sm font-bold text-slate-600">{user.name}</span>
           </div>
         </div>
-        <button onClick={onLogout} className="flex items-center gap-1 rounded-2xl border bg-white px-3 py-2 text-xs font-black text-slate-600">
+        <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
+          {canRequestEngineer ? (
+            <button
+              type="button"
+              onClick={onToggleEngineerRequest}
+              className={`flex items-center gap-1 rounded-2xl border px-3 py-2 text-xs font-black shadow-sm active:scale-[0.99] ${
+                showEngineerRequest
+                  ? "border-slate-300 bg-slate-900 text-white"
+                  : "border-slate-200 bg-slate-50 text-slate-700"
+              }`}
+            >
+              <Users className="h-4 w-4" />
+              시공기사 계정신청
+            </button>
+          ) : null}
+          <button onClick={onLogout} className="flex items-center gap-1 rounded-2xl border bg-white px-3 py-2 text-xs font-black text-slate-600">
           <LogOut className="h-4 w-4" /> 로그아웃
-        </button>
+          </button>
+        </div>
       </div>
     </header>
   );
