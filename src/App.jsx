@@ -81,12 +81,57 @@ const PHOTO_UPLOAD_ACCEPT = ".jpg,.jpeg,.jfif,.png,.webp,.heic,.heif,.gif,.bmp,.
 const DRAWING_UPLOAD_ACCEPT = `${PHOTO_UPLOAD_ACCEPT},.pdf`;
 const JOB_PAGE_SIZE = 15;
 
+const REFINISHING_FIELD_KEYS = [
+  "item",
+  "itemName",
+  "itemType",
+  "productItem",
+  "jobItem",
+  "orderItem",
+  "workItem",
+  "constructionItem",
+  "constructionType",
+  "category",
+  "product",
+  "productName",
+  "type",
+];
+
+function normalizeRefinishingText(value) {
+  return String(value ?? "")
+    .normalize("NFKC")
+    .replace(/\s+/g, "")
+    .trim();
+}
+
 function isRefinishingItem(value) {
-  return String(value || "").trim() === "재마감";
+  const text = normalizeRefinishingText(value);
+  return text === "재마감" || text.includes("재마감");
+}
+
+function getRefinishingFieldValues(job) {
+  if (!job || typeof job !== "object") return [];
+  return REFINISHING_FIELD_KEYS.map((key) => job[key]).filter((value) => value != null && value !== "");
 }
 
 function isRefinishingJob(job) {
-  return isRefinishingItem(job?.item);
+  return getRefinishingFieldValues(job).some(isRefinishingItem);
+}
+
+function calendarDebugRow(job) {
+  return REFINISHING_FIELD_KEYS.reduce(
+    (acc, key) => {
+      if (job?.[key] != null && job?.[key] !== "") acc[key] = job[key];
+      return acc;
+    },
+    {
+      month: job?.month,
+      rowNumber: job?.rowNumber,
+      customer: job?.customer,
+      installDate: job?.installDate,
+      remakeDetected: isRefinishingJob(job),
+    },
+  );
 }
 
 function RefinishingBadge() {
@@ -242,6 +287,19 @@ function portalActor(user) {
     user?.partnerName ||
     "사용자",
   ).trim();
+}
+
+function partnerAuthPayload(user, authPassword) {
+  const loginId = String(user?.loginId || user?.id || user?.name || "").trim();
+  const password = String(authPassword || user?.authPassword || "").trim();
+
+  return {
+    id: loginId,
+    loginId,
+    password,
+    currentPassword: password,
+    authPassword: password,
+  };
 }
 
 function fileToBase64(file) {
@@ -453,8 +511,7 @@ export default function PartnerInstallerPortal() {
       const authPassword = options.authPassword || loginUser.authPassword || partnerAuthPassword || "";
       const result = await apiPost({
         action: "getPartnerJobs",
-        loginId: loginUser.loginId || loginUser.id || loginUser.name || "",
-        password: authPassword,
+        ...partnerAuthPayload(loginUser, authPassword),
         role: loginUser.role,
         partnerName: loginUser.partnerName,
         engineerName: loginUser.engineerName || "",
@@ -480,7 +537,8 @@ export default function PartnerInstallerPortal() {
 
     try {
       const authPassword = loginUser.authPassword || partnerAuthPassword || "";
-      const response = await fetch(`${WEBAPP_URL}?action=partnerInstallerData&loginId=${encodeURIComponent(loginUser.loginId || loginUser.id || loginUser.name || "")}&password=${encodeURIComponent(authPassword)}&t=${Date.now()}`);
+      const auth = partnerAuthPayload(loginUser, authPassword);
+      const response = await fetch(`${WEBAPP_URL}?action=partnerInstallerData&id=${encodeURIComponent(auth.id)}&loginId=${encodeURIComponent(auth.loginId)}&password=${encodeURIComponent(auth.password)}&currentPassword=${encodeURIComponent(auth.currentPassword)}&authPassword=${encodeURIComponent(auth.authPassword)}&t=${Date.now()}`);
       const result = await response.json();
 
       if (!result.success) return [];
@@ -704,8 +762,7 @@ export default function PartnerInstallerPortal() {
       setEngineerRequestLoading(true);
       const result = await apiPost({
         action: "requestPartnerEngineerAccount",
-        loginId: user.loginId || user.id,
-        password: partnerAuthPassword,
+        ...partnerAuthPayload(user, partnerAuthPassword),
         engineerName,
         phone,
       });
@@ -794,8 +851,7 @@ export default function PartnerInstallerPortal() {
     try {
       const result = await apiPost({
         action: "assignEngineer",
-        loginId: user.loginId || user.id || user.name || "",
-        password: partnerAuthPassword || user.authPassword || "",
+        ...partnerAuthPayload(user, partnerAuthPassword || user.authPassword || ""),
         rowNumber: job.rowNumber || "",
         jobId: job.id || job.jobId || "",
         id: job.id || "",
@@ -850,8 +906,7 @@ export default function PartnerInstallerPortal() {
     try {
       const result = await apiPost({
         action: "completeJob",
-        loginId: user.loginId || user.id || user.name || "",
-        password: partnerAuthPassword || user.authPassword || "",
+        ...partnerAuthPayload(user, partnerAuthPassword || user.authPassword || ""),
         rowNumber: job.rowNumber || "",
         jobId: job.id || job.jobId || "",
         id: job.id || "",
@@ -908,8 +963,7 @@ export default function PartnerInstallerPortal() {
     try {
       const result = await apiPost({
         action: "addHistory",
-        loginId: user.loginId || user.id || user.name || "",
-        password: partnerAuthPassword || user.authPassword || "",
+        ...partnerAuthPayload(user, partnerAuthPassword || user.authPassword || ""),
         rowNumber: job.rowNumber || "",
         jobId: job.id || job.jobId || "",
         id: job.id || "",
@@ -978,8 +1032,7 @@ export default function PartnerInstallerPortal() {
         setUploadProgress(`업로드 중 ${i + 1}/${fileList.length}`);
         const result = await apiPost({
           action: "uploadPhoto",
-          loginId: user.loginId || user.id || user.name || "",
-          password: partnerAuthPassword || user.authPassword || "",
+          ...partnerAuthPayload(user, partnerAuthPassword || user.authPassword || ""),
           month: job.month || job.sheet || "",
           rowNumber: job.rowNumber || "",
           category,
@@ -1310,14 +1363,20 @@ export default function PartnerInstallerPortal() {
 }
 
 function LoginForm({ id, password, setId, setPassword, message, loading = false, onSubmit }) {
+  const submitLogin = (event) => {
+    event?.preventDefault?.();
+    if (loading) return;
+    onSubmit();
+  };
+
   const submitOnEnter = (event) => {
     if (event.key !== "Enter") return;
-    onSubmit();
+    submitLogin(event);
   };
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-slate-50 p-5">
-      <div className="w-full max-w-md rounded-[2rem] bg-white p-6 shadow-xl">
+      <form className="w-full max-w-md rounded-[2rem] bg-white p-6 shadow-xl" onSubmit={submitLogin}>
         <div className="flex items-center gap-3">
           <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-900 text-white">
             <Building2 className="h-6 w-6" />
@@ -1342,10 +1401,10 @@ function LoginForm({ id, password, setId, setPassword, message, loading = false,
 
         {message ? <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm font-bold text-rose-700">{message}</div> : null}
 
-        <button onClick={onSubmit} disabled={loading} className="mt-6 flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-4 text-sm font-black text-white disabled:bg-slate-300">
+        <button type="submit" disabled={loading} className="mt-6 flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-4 text-sm font-black text-white disabled:bg-slate-300">
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />} {loading ? "확인 중" : "로그인"}
         </button>
-      </div>
+      </form>
     </main>
   );
 }
@@ -1609,6 +1668,15 @@ function MonthlyConstructionCalendar({ jobs = [], selectedMonth = "", selectedDa
     };
   }, [jobs, selectedMonth]);
 
+  useEffect(() => {
+    if (!import.meta.env.DEV || typeof window === "undefined") return;
+    const sample = jobs.slice(0, 30).map(calendarDebugRow);
+    const logKey = `portal-${selectedMonth}-${sample.length}-${sample.some((job) => job.remakeDetected)}`;
+    if (window.__DAELIM_PORTAL_CALENDAR_DEBUG_KEY__ === logKey) return;
+    window.__DAELIM_PORTAL_CALENDAR_DEBUG_KEY__ = logKey;
+    console.log("[MonthlyConstructionCalendar:portal] jobs", sample);
+  }, [jobs, selectedMonth]);
+
   return (
     <section className="rounded-3xl border bg-white p-3 shadow-sm md:p-5">
       <div className="flex items-start justify-between gap-3">
@@ -1620,6 +1688,16 @@ function MonthlyConstructionCalendar({ jobs = [], selectedMonth = "", selectedDa
           <p className="mt-1 text-xs font-bold text-slate-400">
             {"\uB0A0\uC9DC\uBCC4 \uBC30\uC815 \uD604\uC7A5"} {calendarData.scheduledCount}{"\uAC74"}
           </p>
+          <div className="mt-2 flex items-center gap-3 text-[11px] font-bold text-slate-500">
+            <span className="inline-flex items-center gap-1">
+              <span className="h-2 w-2 rounded-full bg-emerald-500" />
+              일반
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <span className="h-2 w-2 rounded-full bg-orange-500" />
+              재마감
+            </span>
+          </div>
         </div>
         <CalendarDays className="h-5 w-5 text-blue-500" />
       </div>
@@ -1636,25 +1714,51 @@ function MonthlyConstructionCalendar({ jobs = [], selectedMonth = "", selectedDa
             key={cell.key}
             type="button"
             onClick={() => cell.rows.length && onSelectDate?.(cell.key)}
-            className={`min-h-[54px] rounded-xl border p-1 text-left transition active:scale-[0.99] md:min-h-[96px] md:rounded-2xl md:p-1.5 ${
-              cell.inMonth ? "border-slate-100 bg-slate-50" : "border-slate-50 bg-white text-slate-300"
+            className={`min-h-[66px] rounded-xl border p-1.5 text-left transition active:scale-[0.99] md:min-h-[104px] md:rounded-2xl md:p-2 ${
+              cell.inMonth
+                ? cell.rows.some(isRefinishingJob)
+                  ? "border-orange-300 bg-orange-50"
+                  : "border-slate-100 bg-slate-50"
+                : "border-slate-50 bg-white text-slate-300"
             } ${cell.rows.length ? "hover:border-blue-200 hover:bg-blue-50" : ""} ${
-              selectedDate === cell.key ? "border-blue-400 bg-blue-50 ring-2 ring-blue-100" : ""
+              selectedDate === cell.key
+                ? cell.rows.some(isRefinishingJob)
+                  ? "border-orange-500 bg-orange-100 ring-2 ring-orange-200 hover:border-orange-500 hover:bg-orange-100"
+                  : "border-blue-500 bg-blue-50 ring-2 ring-blue-200"
+                : ""
             }`}
           >
             <div className="flex items-center justify-between gap-0.5">
-              <span className={`text-xs font-black ${cell.isToday ? "rounded-full bg-blue-600 px-1.5 py-0.5 text-white" : "text-slate-600"}`}>
-                {cell.date.getDate()}
-              </span>
+              <div className="flex items-center gap-1">
+                <span className={`text-xs font-black ${cell.isToday ? "rounded-full bg-blue-600 px-1.5 py-0.5 text-white" : cell.rows.some(isRefinishingJob) ? "text-orange-700" : "text-slate-600"}`}>
+                  {cell.date.getDate()}
+                </span>
+                {cell.rows.some(isRefinishingJob) ? (
+                  <span className="rounded-full bg-orange-500 px-1 text-[8px] font-black leading-3 text-white">재</span>
+                ) : null}
+              </div>
               {cell.rows.length ? (
-                <span className="rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] font-black text-blue-700">
+                <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-black ${cell.rows.some(isRefinishingJob) ? "bg-orange-100 text-orange-700" : "bg-blue-100 text-blue-700"}`}>
                   {cell.rows.length}
                 </span>
               ) : null}
             </div>
+            {cell.rows.length ? (
+              <div className="mt-1 flex flex-wrap items-center gap-0.5">
+                {cell.rows.slice(0, 6).map((job, dotIndex) => (
+                  <span
+                    key={`${cell.key}-dot-${job.rowNumber || dotIndex}-${dotIndex}`}
+                    className={`h-1.5 w-1.5 rounded-full ring-1 ring-white md:h-2 md:w-2 ${isRefinishingJob(job) ? "bg-orange-500" : "bg-emerald-500"}`}
+                  />
+                ))}
+                {cell.rows.length > 6 ? (
+                  <span className="text-[9px] font-black leading-none text-slate-500">+{cell.rows.length - 6}</span>
+                ) : null}
+              </div>
+            ) : null}
             <div className="mt-0.5 space-y-0.5 md:mt-1 md:space-y-1">
               {cell.rows.slice(0, 2).map((job) => (
-                <div key={`${cell.key}-${job.month}-${job.rowNumber}`} className="hidden truncate rounded-lg bg-white px-1 py-0.5 text-[9px] font-black text-slate-700 shadow-sm sm:block md:px-1.5 md:py-1 md:text-[10px]">
+                <div key={`${cell.key}-${job.month}-${job.rowNumber}`} className={`hidden truncate rounded-lg bg-white px-1 py-0.5 text-[9px] font-black shadow-sm sm:block md:px-1.5 md:py-1 md:text-[10px] ${isRefinishingJob(job) ? "text-orange-700" : "text-slate-700"}`}>
                   {job.customer || "\uD604\uC7A5"}
                 </div>
               ))}
