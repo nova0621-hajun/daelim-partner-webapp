@@ -233,6 +233,17 @@ async function apiPost(payload) {
   }
 }
 
+function portalActor(user) {
+  return String(
+    user?.loginId ||
+    user?.id ||
+    user?.name ||
+    user?.engineerName ||
+    user?.partnerName ||
+    "사용자",
+  ).trim();
+}
+
 function fileToBase64(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -792,6 +803,7 @@ export default function PartnerInstallerPortal() {
         partnerName: user.partnerName || job.partner || "",
         engineerName: engineer,
         engineerPhone: nextEngineerPhone,
+        actor: portalActor(user),
       });
 
       if (!result.success) {
@@ -848,6 +860,7 @@ export default function PartnerInstallerPortal() {
         partnerName: user.partnerName || job.partner || "",
         engineerName: user.engineerName || job.engineer || "",
         requireCompletionPhoto: true,
+        actor: portalActor(user),
       });
 
       if (!result.success) {
@@ -883,7 +896,7 @@ export default function PartnerInstallerPortal() {
     }
 
     const key = jobKey(job);
-    const nextHistoryLine = `${new Date().toLocaleString("ko-KR")} ${user.name || user.engineerName || user.partnerName || "사용자"}: ${text.trim()}`;
+    const nextHistoryLine = `${new Date().toLocaleString("ko-KR")} ${portalActor(user)}: ${text.trim()}`;
     const appendHistory = (item) => ({
       ...item,
       history: [item.history, nextHistoryLine].filter(Boolean).join("\n"),
@@ -904,7 +917,7 @@ export default function PartnerInstallerPortal() {
         role: user.role,
         partnerName: user.partnerName || job.partner || "",
         engineerName: user.engineerName || job.engineer || "",
-        actor: user.name || user.engineerName || user.partnerName || "사용자",
+        actor: portalActor(user),
         text: text.trim(),
       });
 
@@ -976,6 +989,7 @@ export default function PartnerInstallerPortal() {
           role: user.role,
           partnerName: user.partnerName || job.partner || "",
           engineerName: user.engineerName || job.engineer || "",
+          actor: portalActor(user),
         });
 
         if (!result.success) {
@@ -2137,3 +2151,4 @@ function HistoryModal({ job, onClose, onSubmit, saving = false, message = "" }) 
     </div>
   );
 }
+
