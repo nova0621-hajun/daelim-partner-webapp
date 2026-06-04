@@ -289,6 +289,11 @@ function portalActor(user) {
   ).trim();
 }
 
+function isUnassignedEngineerValue(value) {
+  const text = String(value || "").trim();
+  return !text || text === "\uBBF8\uBC30\uC815" || text.includes("\uBBF8\uBC30\uC815");
+}
+
 function partnerAuthPayload(user, authPassword) {
   const loginId = String(user?.loginId || user?.id || user?.name || "").trim();
   const password = String(authPassword || user?.authPassword || "").trim();
@@ -446,7 +451,7 @@ export default function PartnerInstallerPortal() {
       })
       : engineerScoped;
 
-    if (activeTab === "unassigned") return calendarScoped.filter((job) => !job.engineer || job.engineer === "\uBBF8\uBC30\uC815" || job.status === "\uAE30\uC0AC\uBC30\uC815\uC694\uCCAD");
+    if (activeTab === "unassigned") return calendarScoped.filter((job) => isUnassignedEngineerValue(job.engineer) || job.status === "\uAE30\uC0AC\uBC30\uC815\uC694\uCCAD");
     if (activeTab === "photo") return calendarScoped.filter((job) => job.status !== "\uC2DC\uACF5\uC644\uB8CC" && !hasCompletionPhoto(job));
     if (activeTab === "complete") return calendarScoped.filter((job) => job.status === "\uC2DC\uACF5\uC644\uB8CC");
     if (activeTab === "progress") return calendarScoped.filter((job) => job.status !== "\uC2DC\uACF5\uC644\uB8CC");
@@ -455,7 +460,7 @@ export default function PartnerInstallerPortal() {
 
   const stats = useMemo(() => ({
     total: monthVisibleJobs.length,
-    unassigned: monthVisibleJobs.filter((job) => !job.engineer || job.engineer === "\uBBF8\uBC30\uC815" || job.status === "\uAE30\uC0AC\uBC30\uC815\uC694\uCCAD").length,
+    unassigned: monthVisibleJobs.filter((job) => isUnassignedEngineerValue(job.engineer) || job.status === "\uAE30\uC0AC\uBC30\uC815\uC694\uCCAD").length,
     week: monthVisibleJobs.filter(isThisWeekJob).length,
     photoMissing: monthVisibleJobs.filter((job) => job.photo !== "\uB4F1\uB85D\uC644\uB8CC").length,
     completePhotoMissing: monthVisibleJobs.filter((job) => job.status !== "\uC2DC\uACF5\uC644\uB8CC" && !hasCompletionPhoto(job)).length,
@@ -1989,7 +1994,7 @@ function JobCard({ job, user, onDetail, onUpload, onHistory, onComplete, complet
   const isComplete = job.status === "시공완료";
   const locked = isJobLocked(job);
   const completePhotoReady = hasCompletionPhoto(job);
-  const needsEngineer = user.role === "partner" && (!job.engineer || job.engineer === "미배정" || job.status === "기사배정요청");
+  const needsEngineer = user.role === "partner" && (isUnassignedEngineerValue(job.engineer) || job.status === "기사배정요청");
 
   return (
     <article className="rounded-3xl border bg-white p-3 shadow-sm md:p-4">
@@ -2001,6 +2006,7 @@ function JobCard({ job, user, onDetail, onUpload, onHistory, onComplete, complet
         <div className="flex shrink-0 flex-col items-end gap-1">
           {locked ? <Badge className="border-rose-200 bg-rose-50 text-rose-700">잠금</Badge> : null}
           <Badge className={STATUS_CLASS[job.status] || "border-slate-200 bg-slate-100 text-slate-600"}>{job.status}</Badge>
+          {needsEngineer ? <Badge className="border-amber-300 bg-amber-50 text-amber-700">시공기사 미배정</Badge> : null}
           {isRefinishingJob(job) ? <RefinishingBadge /> : null}
         </div>
       </div>
@@ -2009,7 +2015,7 @@ function JobCard({ job, user, onDetail, onUpload, onHistory, onComplete, complet
         <Info label="시공일" value={installPeriod(job)} />
         <Info label="아이템" value={job.item} />
         <Info label="담당자" value={job.manager} />
-        <Info label="기사" value={job.engineer || "미배정"} />
+        <Info label="기사" value={isUnassignedEngineerValue(job.engineer) ? "미배정" : job.engineer} />
         {user.role === "partner" ? <Info label="지급시공비" value={formatMoney(partnerPaymentAmount(job))} /> : null}
       </div>
 
@@ -2043,7 +2049,7 @@ function Info({ label, value }) {
 }
 
 function JobDetailModal({ job, user, onClose, onUpload, onHistory, onAssign, engineerOptions = [], assigning = false, completing = false, actionMessage = "", onComplete, onCopyAddress, addressCopied = false }) {
-  const [engineer, setInstaller] = useState(job.engineer === "미배정" ? "" : job.engineer || "");
+  const [engineer, setInstaller] = useState(isUnassignedEngineerValue(job.engineer) ? "" : job.engineer || "");
   const engineerNames = engineerOptions.map((item) => item.name);
   const isComplete = job.status === "시공완료";
   const locked = isJobLocked(job);
@@ -2059,7 +2065,9 @@ function JobDetailModal({ job, user, onClose, onUpload, onHistory, onAssign, eng
             <div className="mt-2 flex flex-wrap gap-2">
               {locked ? <Badge className="border-rose-200 bg-rose-50 text-rose-700">관리자 잠금</Badge> : null}
               <Badge className={STATUS_CLASS[job.status] || "border-slate-200 bg-slate-100 text-slate-600"}>{job.status}</Badge>
-          {isRefinishingJob(job) ? <RefinishingBadge /> : null}
+              {user.role === "partner" && (isUnassignedEngineerValue(job.engineer) || job.status === "기사배정요청") ? (
+                <Badge className="border-amber-300 bg-amber-50 text-amber-700">시공기사 미배정</Badge>
+              ) : null}
               {isRefinishingJob(job) ? <RefinishingBadge /> : <Badge className="border-slate-200 bg-slate-50 text-slate-600">{job.item}</Badge>}
             </div>
           </div>
@@ -2098,7 +2106,7 @@ function JobDetailModal({ job, user, onClose, onUpload, onHistory, onAssign, eng
             <DetailRow label="시공기간" value={installPeriod(job)} />
             <DetailRow label="대리석" value={shortDate(job.stoneDate)} />
             <DetailRow label="협력사" value={job.partner} />
-            <DetailRow label="시공기사" value={job.engineer || "미배정"} />
+            <DetailRow label="시공기사" value={isUnassignedEngineerValue(job.engineer) ? "미배정" : job.engineer} />
             <DetailRow label="시공기사 연락처" value={<PhoneLink value={job.engineerPhone} />} />
             {user.role === "partner" ? <DetailRow label="지급시공비" value={formatMoney(partnerPaymentAmount(job))} /> : null}
             {user.role === "partner" && job.extraPaymentMemo ? <DetailRow label="지급 추가비용 내용" value={job.extraPaymentMemo} /> : null}
