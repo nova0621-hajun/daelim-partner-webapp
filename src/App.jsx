@@ -451,6 +451,7 @@ export default function PartnerInstallerPortal() {
 
       if (!result.success) {
         if (!options.silent) setLoginMessage(result.message || "현장 목록 조회 실패");
+        if (options.throwOnError) throw new Error(result.message || "현장 목록 조회 실패");
         return [];
       }
 
@@ -458,6 +459,7 @@ export default function PartnerInstallerPortal() {
     } catch (err) {
       console.error(err);
       if (!options.silent) setLoginMessage(err.message || "현장 목록 API 연결 실패");
+      if (options.throwOnError) throw err;
       return [];
     }
   };
@@ -746,12 +748,15 @@ export default function PartnerInstallerPortal() {
     if (!user) return;
 
     window.setTimeout(async () => {
-      const rows = await fetchPartnerJobs(user, { silent: true });
-      if (!rows.length) return;
+      try {
+        const rows = await fetchPartnerJobs(user, { silent: true, throwOnError: true });
 
-      setJobs(rows);
-      setDetailJob((current) => current ? rows.find((row) => jobKey(row) === jobKey(current)) || current : current);
-      setHistoryJob((current) => current ? rows.find((row) => jobKey(row) === jobKey(current)) || current : current);
+        setJobs(rows);
+        setDetailJob((current) => current ? rows.find((row) => jobKey(row) === jobKey(current)) || null : current);
+        setHistoryJob((current) => current ? rows.find((row) => jobKey(row) === jobKey(current)) || null : current);
+      } catch (err) {
+        console.error(err);
+      }
     }, delay);
   };
 
