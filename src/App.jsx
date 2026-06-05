@@ -452,7 +452,7 @@ export default function PartnerInstallerPortal() {
       : engineerScoped;
 
     if (activeTab === "unassigned") return calendarScoped.filter((job) => isUnassignedEngineerValue(job.engineer) || job.status === "\uAE30\uC0AC\uBC30\uC815\uC694\uCCAD");
-    if (activeTab === "photo") return calendarScoped.filter((job) => job.status !== "\uC2DC\uACF5\uC644\uB8CC" && !hasCompletionPhoto(job));
+    if (activeTab === "photo") return calendarScoped.filter((job) => job.status === "\uC2DC\uACF5\uC644\uB8CC" && !hasCompletionPhoto(job));
     if (activeTab === "complete") return calendarScoped.filter((job) => job.status === "\uC2DC\uACF5\uC644\uB8CC");
     if (activeTab === "progress") return calendarScoped.filter((job) => job.status !== "\uC2DC\uACF5\uC644\uB8CC");
     return calendarScoped;
@@ -463,7 +463,7 @@ export default function PartnerInstallerPortal() {
     unassigned: monthVisibleJobs.filter((job) => isUnassignedEngineerValue(job.engineer) || job.status === "\uAE30\uC0AC\uBC30\uC815\uC694\uCCAD").length,
     week: monthVisibleJobs.filter(isThisWeekJob).length,
     photoMissing: monthVisibleJobs.filter((job) => job.photo !== "\uB4F1\uB85D\uC644\uB8CC").length,
-    completePhotoMissing: monthVisibleJobs.filter((job) => job.status !== "\uC2DC\uACF5\uC644\uB8CC" && !hasCompletionPhoto(job)).length,
+    completePhotoMissing: monthVisibleJobs.filter((job) => job.status === "\uC2DC\uACF5\uC644\uB8CC" && !hasCompletionPhoto(job)).length,
     complete: monthVisibleJobs.filter((job) => job.status === "\uC2DC\uACF5\uC644\uB8CC").length,
     incomplete: monthVisibleJobs.filter((job) => job.status !== "\uC2DC\uACF5\uC644\uB8CC").length,
   }), [monthVisibleJobs]);
@@ -501,6 +501,24 @@ export default function PartnerInstallerPortal() {
     setSelectedEngineerFilter("");
     setSelectedCalendarDate("");
   }, [selectedMonth, user?.role]);
+
+  const activeTabLabel = useMemo(() => {
+    const partnerLabels = {
+      today: "전체 현장",
+      unassigned: "시공기사 미배정",
+      photo: "완료사진 필요",
+      progress: "진행중",
+      complete: "시공완료",
+    };
+    const engineerLabels = {
+      today: "전체 현장",
+      progress: "진행중",
+      photo: "완료사진 필요",
+      complete: "시공완료",
+    };
+
+    return (user?.role === "partner" ? partnerLabels : engineerLabels)[activeTab] || "전체 현장";
+  }, [activeTab, user?.role]);
 
   const selectTab = (tab) => {
     setSelectedEngineerFilter("");
@@ -1257,8 +1275,13 @@ export default function PartnerInstallerPortal() {
               <p className="mt-1 text-xs font-medium text-slate-500">
                 총 {filteredJobs.length}건 표시 중{user.role === "partner" ? ` · 표시 합계 ${formatMoney(filteredPaymentTotal)}` : ""}
               </p>
-              {selectedCalendarDate || selectedEngineerFilter ? (
+              {selectedCalendarDate || selectedEngineerFilter || activeTab !== "today" ? (
                 <div className="mt-2 flex flex-wrap items-center gap-2">
+                  {activeTab !== "today" ? (
+                    <Badge className="border-slate-200 bg-slate-50 text-slate-700">
+                      현재 필터: {activeTabLabel}
+                    </Badge>
+                  ) : null}
                   {selectedCalendarDate ? (
                     <Badge className="border-blue-200 bg-blue-50 text-blue-700">
                       선택 날짜: {selectedCalendarDate}
@@ -1738,10 +1761,12 @@ function MonthlyConstructionCalendar({ jobs = [], selectedMonth = "", selectedDa
               <span className="h-2 w-2 rounded-full bg-orange-500" />
               재마감
             </span>
+            {userRole === "partner" ? (
             <span className="inline-flex items-center gap-1">
               <span className="h-2 w-2 rounded-full bg-rose-500" />
               기사 미배정
             </span>
+            ) : null}
           </div>
         </div>
         <CalendarDays className="h-5 w-5 text-blue-500" />
@@ -1852,6 +1877,7 @@ function PartnerPaymentDashboard({ jobs = [], stats, paymentTotal, selectedEngin
   }, [jobs]);
 
   const summaryCards = [
+    ["\uC804\uCCB4 \uD604\uC7A5", stats.total, "today"],
     ["\uC774\uBC88\uB2EC \uBC30\uC815 \uD604\uC7A5", stats.total, "today"],
     ["\uC774\uBC88\uC8FC \uC2DC\uACF5 \uC608\uC815", stats.week, "today"],
     ["\uC2DC\uACF5\uC644\uB8CC", stats.complete, "complete"],
