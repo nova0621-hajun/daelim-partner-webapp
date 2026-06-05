@@ -214,6 +214,23 @@ function isThisWeekJob(job) {
   return start <= weekEnd && end >= weekStart;
 }
 
+function isTodayJob(job) {
+  const date = parseJobDate(job?.installDate);
+  if (!date) return false;
+  return toDateKey(date) === toDateKey(new Date());
+}
+
+function isPastOrTodayJob(job) {
+  const date = parseJobDate(job?.installDate);
+  if (!date) return false;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  date.setHours(0, 0, 0, 0);
+
+  return date <= today;
+}
+
 function jobKey(job) {
   if (!job) return "";
   return `${job.month || job.sheet || ""}-${job.rowNumber || job.id || job.jobId || ""}`;
@@ -231,6 +248,25 @@ function completionPhotoCount(job) {
 
 function hasCompletionPhoto(job) {
   return completionPhotoCount(job) > 0;
+}
+
+function isEngineerPhotoNeededJob(job) {
+  return job?.status !== "\uC2DC\uACF5\uC644\uB8CC" && isPastOrTodayJob(job) && !hasCompletionPhoto(job);
+}
+
+function isCompletionReportPendingJob(job) {
+  return job?.status !== "\uC2DC\uACF5\uC644\uB8CC" && hasCompletionPhoto(job);
+}
+
+function filterEngineerDashboardJobs(rows, filter) {
+  if (!filter || filter === "all") return rows;
+  if (filter === "today") return rows.filter(isTodayJob);
+  if (filter === "week") return rows.filter(isThisWeekJob);
+  if (filter === "month") return rows;
+  if (filter === "photoNeeded") return rows.filter(isEngineerPhotoNeededJob);
+  if (filter === "completePending") return rows.filter(isCompletionReportPendingJob);
+  if (filter === "complete") return rows.filter((job) => job.status === "\uC2DC\uACF5\uC644\uB8CC");
+  return rows;
 }
 
 function partnerPaymentAmount(job) {
@@ -364,6 +400,7 @@ export default function PartnerInstallerPortal() {
   const [selectedMonth, setSelectedMonth] = useState("all");
   const [selectedEngineerFilter, setSelectedEngineerFilter] = useState("");
   const [selectedCalendarDate, setSelectedCalendarDate] = useState("");
+  const [engineerDashboardFilter, setEngineerDashboardFilter] = useState("");
   const [detailJob, setDetailJob] = useState(null);
   const [uploadJob, setUploadJob] = useState(null);
   const [historyJob, setHistoryJob] = useState(null);
@@ -451,12 +488,16 @@ export default function PartnerInstallerPortal() {
       })
       : engineerScoped;
 
-    if (activeTab === "unassigned") return calendarScoped.filter((job) => isUnassignedEngineerValue(job.engineer) || job.status === "\uAE30\uC0AC\uBC30\uC815\uC694\uCCAD");
-    if (activeTab === "photo") return calendarScoped.filter((job) => job.status === "\uC2DC\uACF5\uC644\uB8CC" && !hasCompletionPhoto(job));
-    if (activeTab === "complete") return calendarScoped.filter((job) => job.status === "\uC2DC\uACF5\uC644\uB8CC");
-    if (activeTab === "progress") return calendarScoped.filter((job) => job.status !== "\uC2DC\uACF5\uC644\uB8CC");
-    return calendarScoped;
-  }, [activeTab, monthVisibleJobs, selectedCalendarDate, selectedEngineerFilter]);
+    const dashboardScoped = user?.role === "engineer"
+      ? filterEngineerDashboardJobs(calendarScoped, engineerDashboardFilter)
+      : calendarScoped;
+
+    if (activeTab === "unassigned") return dashboardScoped.filter((job) => isUnassignedEngineerValue(job.engineer) || job.status === "\uAE30\uC0AC\uBC30\uC815\uC694\uCCAD");
+    if (activeTab === "photo") return dashboardScoped.filter((job) => job.status === "\uC2DC\uACF5\uC644\uB8CC" && !hasCompletionPhoto(job));
+    if (activeTab === "complete") return dashboardScoped.filter((job) => job.status === "\uC2DC\uACF5\uC644\uB8CC");
+    if (activeTab === "progress") return dashboardScoped.filter((job) => job.status !== "\uC2DC\uACF5\uC644\uB8CC");
+    return dashboardScoped;
+  }, [activeTab, monthVisibleJobs, selectedCalendarDate, selectedEngineerFilter, engineerDashboardFilter, user?.role]);
 
   const stats = useMemo(() => ({
     total: monthVisibleJobs.length,
@@ -468,11 +509,21 @@ export default function PartnerInstallerPortal() {
     incomplete: monthVisibleJobs.filter((job) => job.status !== "\uC2DC\uACF5\uC644\uB8CC").length,
   }), [monthVisibleJobs]);
 
+  const engineerStats = useMemo(() => ({
+    today: monthVisibleJobs.filter(isTodayJob).length,
+    week: monthVisibleJobs.filter(isThisWeekJob).length,
+    month: monthVisibleJobs.length,
+    photoNeeded: monthVisibleJobs.filter(isEngineerPhotoNeededJob).length,
+    completePending: monthVisibleJobs.filter(isCompletionReportPendingJob).length,
+    complete: monthVisibleJobs.filter((job) => job.status === "\uC2DC\uACF5\uC644\uB8CC").length,
+    total: monthVisibleJobs.length,
+  }), [monthVisibleJobs]);
+
   const pagedJobs = useMemo(() => filteredJobs.slice(0, visibleJobLimit), [filteredJobs, visibleJobLimit]);
 
   useEffect(() => {
     setVisibleJobLimit(JOB_PAGE_SIZE);
-  }, [activeTab, selectedMonth, selectedCalendarDate, selectedEngineerFilter, user?.role]);
+  }, [activeTab, selectedMonth, selectedCalendarDate, selectedEngineerFilter, engineerDashboardFilter, user?.role]);
 
   const groupedJobs = useMemo(() => {
     const groups = new Map();
@@ -500,6 +551,7 @@ export default function PartnerInstallerPortal() {
   useEffect(() => {
     setSelectedEngineerFilter("");
     setSelectedCalendarDate("");
+    setEngineerDashboardFilter("");
   }, [selectedMonth, user?.role]);
 
   const activeTabLabel = useMemo(() => {
@@ -520,10 +572,34 @@ export default function PartnerInstallerPortal() {
     return (user?.role === "partner" ? partnerLabels : engineerLabels)[activeTab] || "전체 현장";
   }, [activeTab, user?.role]);
 
+  const engineerDashboardFilterLabel = useMemo(() => {
+    const labels = {
+      today: "오늘 시공 현장",
+      week: "이번주 시공 현장",
+      month: "이번달 시공 현장",
+      photoNeeded: "완료사진 필요 현장",
+      completePending: "완료보고 대기 현장",
+      complete: "시공완료 현장",
+    };
+
+    return labels[engineerDashboardFilter] || "";
+  }, [engineerDashboardFilter]);
+
   const selectTab = (tab) => {
     setSelectedEngineerFilter("");
     setSelectedCalendarDate("");
+    setEngineerDashboardFilter("");
     setActiveTab(tab);
+    window.setTimeout(() => {
+      listRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 80);
+  };
+
+  const selectEngineerDashboardFilter = (filter) => {
+    setSelectedEngineerFilter("");
+    setSelectedCalendarDate("");
+    setEngineerDashboardFilter(filter === "all" ? "" : filter);
+    setActiveTab("today");
     window.setTimeout(() => {
       listRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 80);
@@ -1241,6 +1317,7 @@ export default function PartnerInstallerPortal() {
           onSelectDate={(dateKey) => {
             setSelectedEngineerFilter("");
             setSelectedCalendarDate(dateKey);
+            setEngineerDashboardFilter("");
             setActiveTab("today");
             window.setTimeout(() => {
               listRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1265,7 +1342,14 @@ export default function PartnerInstallerPortal() {
             onSelectSummary={selectTab}
           />
         ) : null}
-        {user.role === "partner" ? null : <StatGrid user={user} stats={stats} setActiveTab={selectTab} />}
+        {user.role === "engineer" ? (
+          <EngineerDashboard
+            stats={engineerStats}
+            selectedFilter={engineerDashboardFilter}
+            onSelectFilter={selectEngineerDashboardFilter}
+          />
+        ) : null}
+        {user.role === "partner" || user.role === "engineer" ? null : <StatGrid user={user} stats={stats} setActiveTab={selectTab} />}
         <TabBar user={user} activeTab={activeTab} setActiveTab={selectTab} />
 
         <section ref={listRef} className="scroll-mt-4 space-y-3 rounded-3xl bg-white p-4 shadow-sm md:p-5">
@@ -1275,8 +1359,13 @@ export default function PartnerInstallerPortal() {
               <p className="mt-1 text-xs font-medium text-slate-500">
                 총 {filteredJobs.length}건 표시 중{user.role === "partner" ? ` · 표시 합계 ${formatMoney(filteredPaymentTotal)}` : ""}
               </p>
-              {selectedCalendarDate || selectedEngineerFilter || activeTab !== "today" ? (
+              {selectedCalendarDate || selectedEngineerFilter || activeTab !== "today" || engineerDashboardFilter ? (
                 <div className="mt-2 flex flex-wrap items-center gap-2">
+                  {engineerDashboardFilter ? (
+                    <Badge className="border-blue-200 bg-blue-50 text-blue-700">
+                      {engineerDashboardFilterLabel}
+                    </Badge>
+                  ) : null}
                   {activeTab !== "today" ? (
                     <Badge className="border-slate-200 bg-slate-50 text-slate-700">
                       현재 필터: {activeTabLabel}
@@ -1297,6 +1386,7 @@ export default function PartnerInstallerPortal() {
                     onClick={() => {
                       setSelectedCalendarDate("");
                       setSelectedEngineerFilter("");
+                      setEngineerDashboardFilter("");
                       setActiveTab("today");
                       window.setTimeout(() => {
                         listRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1843,6 +1933,53 @@ function MonthlyConstructionCalendar({ jobs = [], selectedMonth = "", selectedDa
                 <div className="px-1 text-[9px] font-black text-blue-600 md:px-1.5 md:text-[10px]">+{cell.rows.length - 2}</div>
               ) : null}
             </div>
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function EngineerDashboard({ stats, selectedFilter = "", onSelectFilter }) {
+  const cards = [
+    ["오늘 시공", stats.today, "today", CalendarDays],
+    ["이번주 시공", stats.week, "week", CalendarDays],
+    ["이번달 시공", stats.month, "month", ClipboardList],
+    ["완료사진 필요", stats.photoNeeded, "photoNeeded", Camera],
+    ["완료보고 대기", stats.completePending, "completePending", Upload],
+    ["시공완료", stats.complete, "complete", CheckCircle2],
+    ["내 전체 현장", stats.total, "all", ShieldCheck],
+  ];
+
+  const isSelected = (filter) => {
+    if (filter === "all") return !selectedFilter;
+    return selectedFilter === filter;
+  };
+
+  return (
+    <section className="space-y-3 rounded-3xl border bg-white p-3 shadow-sm md:p-5">
+      <div>
+        <p className="text-xs font-black text-blue-600">시공기사 대시보드</p>
+        <h2 className="mt-1 text-lg font-black text-slate-900">내 일정 / 처리 현장</h2>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+        {cards.map(([label, value, filter, Icon]) => (
+          <button
+            key={label}
+            type="button"
+            onClick={() => onSelectFilter?.(filter)}
+            className={`rounded-2xl border p-3 text-left shadow-sm active:scale-[0.99] ${
+              isSelected(filter)
+                ? "border-blue-300 bg-blue-50"
+                : "border-slate-100 bg-slate-50"
+            }`}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[11px] font-black text-slate-500">{label}</p>
+              <Icon className="h-4 w-4 text-slate-400" />
+            </div>
+            <p className="mt-2 text-2xl font-black text-slate-900">{value}</p>
           </button>
         ))}
       </div>
