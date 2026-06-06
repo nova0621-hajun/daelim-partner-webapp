@@ -2628,6 +2628,7 @@ function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false,
   const [imageError, setImageError] = useState("");
   const [secretDraft, setSecretDraft] = useState(() => readR2WorkerSecret());
   const [secretVersion, setSecretVersion] = useState(0);
+  const [secretMessage, setSecretMessage] = useState("");
   const touchStartXRef = useRef(null);
   const viewUrlCacheRef = useRef({});
 
@@ -2641,6 +2642,8 @@ function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false,
     const fallbackCount = category === ALL_TAB ? PHOTO_CATEGORY_OPTIONS.reduce((sum, key) => sum + numberValue(counts?.[key]), 0) : numberValue(counts?.[category]);
     return r2Count + fallbackCount;
   };
+  const categoryCountLabel = (category) => `${category} ${categoryCount(category)}\uC7A5`;
+  const activeCountLabel = `${activeCategory === ALL_TAB ? "\uC804\uCCB4" : activeCategory} ${categoryCount(activeCategory)}\uC7A5`;
 
   const activePhoto = visiblePhotos[activeIndex] || null;
   const fallbackCount = activeCategory === ALL_TAB ? PHOTO_CATEGORY_OPTIONS.reduce((sum, key) => sum + numberValue(counts?.[key]), 0) : numberValue(counts?.[activeCategory]);
@@ -2705,7 +2708,10 @@ function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false,
   };
 
   const saveSecret = () => {
-    writeR2WorkerSecret(secretDraft);
+    const clean = String(secretDraft || "").trim();
+    writeR2WorkerSecret(clean);
+    setSecretDraft(clean || readR2WorkerSecret());
+    setSecretMessage(clean ? "\uC800\uC7A5\uB418\uC5C8\uC2B5\uB2C8\uB2E4." : "");
     viewUrlCacheRef.current = {};
     setSecretVersion((value) => value + 1);
   };
@@ -2725,11 +2731,11 @@ function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false,
         </div>
 
         <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
-          {tabs.map((category) => <button key={category} type="button" onClick={() => setActiveCategory(category)} className={`shrink-0 rounded-2xl px-3 py-2 text-xs font-black ${activeCategory === category ? "bg-slate-900 text-white" : "border bg-white text-slate-600"}`}>{category} {categoryCount(category)}</button>)}
+          {tabs.map((category) => <button key={category} type="button" onClick={() => setActiveCategory(category)} className={`shrink-0 rounded-2xl px-3 py-2 text-xs font-black ${activeCategory === category ? "bg-slate-900 text-white" : "border bg-white text-slate-600"}`}>{categoryCountLabel(category)}</button>)}
         </div>
 
         <div className="mt-3 flex items-center justify-between gap-2">
-          <p className="text-xs font-bold text-slate-500">? {categoryCount(activeCategory)}?</p>
+          <p className="text-xs font-bold text-slate-500">{activeCountLabel}</p>
           <button type="button" onClick={onRefresh} disabled={loading} className="rounded-xl border bg-white px-3 py-2 text-xs font-black text-slate-700 disabled:opacity-50">{"\uC0C8\uB85C\uACE0\uCE68"}</button>
         </div>
 
@@ -2744,6 +2750,7 @@ function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false,
               <input type="password" value={secretDraft} onChange={(event) => setSecretDraft(event.target.value)} className="min-w-0 flex-1 rounded-xl border px-3 py-2 text-sm font-bold" placeholder="Worker Shared Secret" />
               <button type="button" onClick={saveSecret} className="rounded-xl bg-slate-900 px-3 py-2 text-xs font-black text-white">{"\uC800\uC7A5"}</button>
             </div>
+            {secretMessage ? <p className="mt-2 text-xs font-black text-emerald-700">{secretMessage}</p> : null}
           </div>
         ) : null}
 
