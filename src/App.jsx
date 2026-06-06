@@ -141,6 +141,97 @@ function getUploadAccept(category) {
   return category === "계약도면" ? DRAWING_UPLOAD_ACCEPT : PHOTO_UPLOAD_ACCEPT;
 }
 
+function parseApiJsonResponse(text) {
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    const preview = String(text || "").slice(0, 180);
+    throw new Error(`API response parse failed: ${preview}`);
+  }
+}
+
+function normalizePhotoCategory(value) {
+  const text = String(value || "").trim();
+  if (text === "???") return "????";
+  return PHOTO_CATEGORY_OPTIONS.includes(text) ? text : "??";
+}
+
+function readR2WorkerSecret() {
+  try {
+    return sessionStorage.getItem(R2_POC_SECRET_STORAGE_KEY) || localStorage.getItem(R2_POC_SECRET_STORAGE_KEY) || "";
+  } catch (error) {
+    return "";
+  }
+}
+
+function writeR2WorkerSecret(value) {
+  try {
+    const clean = String(value || "").trim();
+    if (!clean) {
+      sessionStorage.removeItem(R2_POC_SECRET_STORAGE_KEY);
+      localStorage.removeItem(R2_POC_SECRET_STORAGE_KEY);
+      return;
+    }
+    sessionStorage.setItem(R2_POC_SECRET_STORAGE_KEY, clean);
+    localStorage.setItem(R2_POC_SECRET_STORAGE_KEY, clean);
+  } catch (error) {}
+}
+
+async function callR2WorkerApi(path, payload, workerSecret = readR2WorkerSecret()) {
+  if (!workerSecret.trim()) {
+    throw new Error("?? ?? ???? ????. Worker Shared Secret? ??? ???.");
+  }
+
+  const response = await fetch(`${R2_POC_WORKER_URL}${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Daelim-Token": workerSecret,
+    },
+    body: JSON.stringify(payload),
+  });
+  const data = parseApiJsonResponse(await response.text());
+  if (!data.success) throw new Error(data.message || "R2 ??? ??????.");
+  return data;
+}
+
+function compressImageFile(file, maxWidth = 1024, quality = 0.75) {
+  return new Promise((resolve) => {
+    if (!file.type?.startsWith("image/")) {
+      resolve(file);
+      return;
+    }
+
+    const image = new Image();
+    const objectUrl = URL.createObjectURL(file);
+
+    image.onload = () => {
+      const scale = Math.min(1, maxWidth / image.width);
+      const width = Math.round(image.width * scale);
+      const height = Math.round(image.height * scale);
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(image, 0, 0, width, height);
+      canvas.toBlob((blob) => {
+        URL.revokeObjectURL(objectUrl);
+        if (!blob) {
+          resolve(file);
+          return;
+        }
+        resolve(new File([blob], file.name.replace(/\.[^.]+$/, ".jpg"), { type: "image/jpeg" }));
+      }, "image/jpeg", quality);
+    };
+
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve(file);
+    };
+
+    image.src = objectUrl;
+  });
+}
 function onlyDigits(value) {
   return String(value || "").replace(/[^0-9]/g, "");
 }
@@ -421,22 +512,27 @@ export default function PartnerInstallerPortal() {
   const engineerRequestRef = useRef(null);
 
   useEffect(() => {
-    if (!detailJob?.month || !detailJob?.rowNumber) return;
+    if (!detailJob?.month || !detailJob?.rowNumber || !user) return;
 
     let ignore = false;
 
     const loadPhotoCounts = async () => {
       try {
-        const url = `${WEBAPP_URL}?action=photoCounts&month=${encodeURIComponent(detailJob.month)}&rowNumber=${encodeURIComponent(detailJob.rowNumber)}&t=${Date.now()}`;
-        const response = await fetch(url);
-        const result = await response.json();
+        const result = await apiPost({
+          action: "getPhotoMetaCounts",
+          ...partnerAuthPayload(user, partnerAuthPassword || user.authPassword || ""),
+          month: detailJob.month,
+          rowNumber: detailJob.rowNumber,
+          orderNo: detailJob.id || detailJob.jobId || "",
+          siteId: detailJob.id || detailJob.jobId || `${detailJob.month}-ROW${detailJob.rowNumber}`,
+        });
 
-        if (ignore || !result.success) return;
+        if (ignore || !result.success || Number(result.total || 0) <= 0) return;
 
         const key = jobKey(detailJob);
         applyJobUpdate(key, {
           photoCounts: result.counts || {},
-          photoUrls: result.urls || {},
+          photoUrls: detailJob.photoUrls || {},
         });
       } catch (err) {
         console.error(err);
@@ -448,7 +544,7 @@ export default function PartnerInstallerPortal() {
     return () => {
       ignore = true;
     };
-  }, [detailJob?.month, detailJob?.rowNumber]);
+  }, [detailJob?.month, detailJob?.rowNumber, user, partnerAuthPassword]);
 
   const visibleJobs = useMemo(() => {
     if (!user) return [];
@@ -1099,16 +1195,132 @@ export default function PartnerInstallerPortal() {
     }
   };
 
+  const buildPhotoAuthPayload = () => partnerAuthPayload(user, partnerAuthPassword || user?.authPassword || "");
+
+  const uploadPhotoToR2 = async ({ job, uploadFile, originalFile, selectedCategory }) => {
+    const month = job.month || job.sheet || "";
+    const siteId = job.id || job.jobId || `${month}-ROW${job.rowNumber}`;
+    const orderNo = job.id || job.jobId || "";
+    const category = normalizePhotoCategory(selectedCategory);
+    const presign = await callR2WorkerApi("/presignUpload", {
+      orderNo,
+      siteId,
+      customer: job.customer || "",
+      installDate: job.installDate || job.woodDate || "",
+      photoCategory: category,
+      originalFileName: originalFile?.name || uploadFile.name,
+      uploaderId: portalActor(user),
+      uploaderRole: user?.role || "",
+      mimeType: uploadFile.type || "application/octet-stream",
+      fileSize: uploadFile.size,
+    });
+
+    const uploadResponse = await fetch(presign.uploadUrl, {
+      method: "PUT",
+      headers: { "Content-Type": uploadFile.type || "application/octet-stream" },
+      body: uploadFile,
+    });
+    const uploadData = parseApiJsonResponse(await uploadResponse.text());
+    if (!uploadData.success) throw new Error(uploadData.message || "R2 ???? ??????.");
+
+    return apiPost({
+      action: "savePhotoMeta",
+      ...buildPhotoAuthPayload(),
+      orderNo,
+      siteId,
+      month,
+      rowNumber: job.rowNumber || "",
+      customer: job.customer || "",
+      installDate: job.installDate || job.woodDate || "",
+      displayFolder: presign.displayFolder,
+      photoCategory: category,
+      storageLocation: "r2",
+      storageKey: presign.storageKey,
+      fileName: presign.fileName,
+      originalFileName: originalFile?.name || uploadFile.name,
+      uploadedBy: portalActor(user),
+      uploaderRole: user?.role || "",
+      uploadedAt: new Date().toISOString(),
+      mimeType: uploadFile.type || "application/octet-stream",
+      fileSize: uploadFile.size,
+      source: user?.role || "partner",
+    });
+  };
+
+  const uploadPhotoToDriveFallback = async ({ job, uploadFile, selectedCategory }) => {
+    const base64 = await fileToBase64(uploadFile);
+    return apiPost({
+      action: "uploadPhoto",
+      ...buildPhotoAuthPayload(),
+      month: job.month || job.sheet || "",
+      rowNumber: job.rowNumber || "",
+      category: selectedCategory,
+      fileName: uploadFile.name,
+      mimeType: uploadFile.type || "application/octet-stream",
+      base64,
+      role: user.role,
+      partnerName: user.partnerName || job.partner || "",
+      engineerName: user.engineerName || job.engineer || "",
+      actor: portalActor(user),
+    });
+  };
+
+  const loadPhotoGallery = async (job, initialCategory = "\uC804\uCCB4") => {
+    if (!job || !user) return;
+    setPhotoViewerJob(job);
+    setPhotoViewerInitialCategory(initialCategory || "\uC804\uCCB4");
+    setPhotoViewerLoading(true);
+    setPhotoViewerError("");
+
+    const month = job.month || job.sheet || "";
+    const siteId = job.id || job.jobId || `${month}-ROW${job.rowNumber}`;
+    const orderNo = job.id || job.jobId || "";
+
+    try {
+      const result = await apiPost({
+        action: "listPhotos",
+        ...buildPhotoAuthPayload(),
+        month,
+        rowNumber: job.rowNumber || "",
+        orderNo,
+        siteId,
+        includeDeleted: false,
+      });
+
+      if (result.success) {
+        setPhotoViewerPhotos(result.photos || []);
+      } else {
+        setPhotoViewerPhotos([]);
+        setPhotoViewerError(result.message || "?? ??? ???? ?????.");
+      }
+      setPhotoViewerInfo({ counts: job.photoCounts || {}, urls: job.photoUrls || {}, source: "job" });
+    } catch (error) {
+      setPhotoViewerPhotos([]);
+      setPhotoViewerInfo({ counts: job.photoCounts || {}, urls: job.photoUrls || {}, source: "job" });
+      setPhotoViewerError(error?.message || "?? ??? ???? ?????.");
+    } finally {
+      setPhotoViewerLoading(false);
+    }
+  };
+
+  const viewR2Photo = async (photo) => {
+    const data = await callR2WorkerApi("/presignView", {
+      storageKey: photo.storageKey,
+      photoId: photo.photoId,
+    });
+    return data.viewUrl;
+  };
   const uploadPhotoFiles = async (job, category, files) => {
     if (!job || !user) return false;
 
     if (isJobLocked(job)) {
-      setActionMessage("관리자가 잠근 현장입니다. 사진을 등록할 수 없습니다.");
+      setActionMessage("???? ?? ?????. ??? ??? ? ????.");
       return false;
     }
 
+    const selectedCategory = normalizePhotoCategory(category);
     const fileList = Array.from(files || []);
-    const check = validateUploadFiles(fileList, category);
+    const check = validateUploadFiles(fileList, selectedCategory);
     const key = jobKey(job);
 
     if (!check.ok) {
@@ -1122,59 +1334,65 @@ export default function PartnerInstallerPortal() {
 
     try {
       let lastResult = null;
+      let usedR2Upload = false;
+      let usedDriveFallback = false;
 
       for (let i = 0; i < fileList.length; i += 1) {
         const file = fileList[i];
-        setUploadProgress(`파일 준비 중 ${i + 1}/${fileList.length}`);
-        const base64 = await fileToBase64(file);
+        const shouldCompress = selectedCategory !== "????";
+        setUploadProgress(`??? ? ${i + 1}/${fileList.length}`);
+        const uploadFile = shouldCompress ? await compressImageFile(file) : file;
 
-        setUploadProgress(`업로드 중 ${i + 1}/${fileList.length}`);
-        const result = await apiPost({
-          action: "uploadPhoto",
-          ...partnerAuthPayload(user, partnerAuthPassword || user.authPassword || ""),
-          month: job.month || job.sheet || "",
-          rowNumber: job.rowNumber || "",
-          category,
-          fileName: file.name,
-          mimeType: file.type || "application/octet-stream",
-          base64,
-          role: user.role,
-          partnerName: user.partnerName || job.partner || "",
-          engineerName: user.engineerName || job.engineer || "",
-          actor: portalActor(user),
-        });
-
-        if (!result.success) {
-          setActionMessage(result.message || "사진등록에 실패했습니다.");
-          return false;
+        try {
+          lastResult = await uploadPhotoToR2({
+            job,
+            uploadFile,
+            originalFile: file,
+            selectedCategory,
+          });
+          if (!lastResult.success) throw new Error(lastResult.message || "????? ??????.");
+          usedR2Upload = true;
+        } catch (r2Error) {
+          usedDriveFallback = true;
+          lastResult = await uploadPhotoToDriveFallback({
+            job,
+            uploadFile,
+            selectedCategory,
+          });
+          if (!lastResult.success) throw new Error(lastResult.message || "????? ??????.");
         }
-
-        lastResult = result;
       }
 
-      applyJobUpdate(key, (item) => ({
-        ...item,
-        photo: "등록완료",
-        photoUrl: lastResult?.folderUrl || item.photoUrl,
-        photoCounts: {
-          ...item.photoCounts,
-          [category]: (item.photoCounts?.[category] || 0) + fileList.length,
-        },
-      }));
-      setUploadJob(null);
-      setUploadProgress("");
-      setActionMessage(`${category} ${fileList.length}개 파일 등록이 완료되었습니다.`);
-      refreshJobsQuietly();
+      applyJobUpdate(key, (item) => {
+        const currentCounts = item.photoCounts || {};
+        const nextCounts = lastResult?.photoCounts
+          ? lastResult.photoCounts
+          : {
+              ...currentCounts,
+              [selectedCategory]: (currentCounts[selectedCategory] || 0) + fileList.length,
+            };
+
+        return {
+          ...item,
+          photo: "????",
+          photoUrl: lastResult?.folderUrl || item.photoUrl,
+          photoCounts: nextCounts,
+          photoUrls: lastResult?.photoUrls || item.photoUrls || {},
+        };
+      });
+
+      setUploadProgress("?? ??");
+      setActionMessage(`${selectedCategory} ${fileList.length}? ?? ??? ???????.`);
+      if (usedDriveFallback && !usedR2Upload) refreshJobsQuietly();
       return true;
     } catch (err) {
       console.error(err);
-      setActionMessage(err.message || "사진등록 API 연결 실패");
+      setActionMessage(err.message || "???? API ?? ??");
       return false;
     } finally {
       setUploadingJobId("");
     }
   };
-
   const copyAddress = async (job) => {
     const address = String(job?.address || "").trim();
 
@@ -1481,7 +1699,8 @@ export default function PartnerInstallerPortal() {
         />
       ) : null}
 
-      {uploadJob ? <UploadModal job={uploadJob} onClose={() => setUploadJob(null)} onSubmit={uploadPhotoFiles} uploading={uploadingJobId === jobKey(uploadJob)} progress={uploadProgress} message={actionMessage} /> : null}
+      {uploadJob ? <UploadModal job={uploadJob} onClose={() => setUploadJob(null)} onSubmit={uploadPhotoFiles} uploading={uploadingJobId === jobKey(uploadJob)} progress={uploadProgress} message={actionMessage} onPhotoView={() => loadPhotoGallery(uploadJob, "\uC804\uCCB4")} /> : null}
+      {photoViewerJob ? <PhotoViewerModal job={photoViewerJob} photos={photoViewerPhotos} photoInfo={photoViewerInfo} loading={photoViewerLoading} error={photoViewerError} initialCategory={photoViewerInitialCategory} onClose={() => setPhotoViewerJob(null)} onRefresh={() => loadPhotoGallery(photoViewerJob, photoViewerInitialCategory)} onViewR2={viewR2Photo} /> : null}
       {historyJob ? <HistoryModal job={historyJob} onClose={() => setHistoryJob(null)} onSubmit={addHistory} saving={historySavingJobId === jobKey(historyJob)} message={actionMessage} /> : null}
     </div>
   );
@@ -2258,7 +2477,7 @@ function Info({ label, value }) {
   return <div><p className="text-[11px] font-black text-slate-400">{label}</p><p className="mt-1 font-black text-slate-700">{value || "-"}</p></div>;
 }
 
-function JobDetailModal({ job, user, onClose, onUpload, onHistory, onAssign, engineerOptions = [], assigning = false, completing = false, actionMessage = "", onComplete, onCopyAddress, addressCopied = false }) {
+function JobDetailModal({ job, user, onClose, onUpload, onHistory, onAssign, engineerOptions = [], assigning = false, completing = false, actionMessage = "", onComplete, onCopyAddress, addressCopied = false, onPhotoView }) {
   const [engineer, setInstaller] = useState(isUnassignedEngineerValue(job.engineer) ? "" : job.engineer || "");
   const engineerNames = engineerOptions.map((item) => item.name);
   const isComplete = job.status === "시공완료";
@@ -2390,7 +2609,173 @@ function PhoneLink({ value }) {
   return <a href={`tel:${onlyDigits(phone)}`} className="font-black text-blue-700 underline decoration-blue-300 underline-offset-2"><Phone className="mr-1 inline h-3.5 w-3.5" />{phone}</a>;
 }
 
-function UploadModal({ job, onClose, onSubmit, uploading = false, progress = "", message = "" }) {
+function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false, error = "", initialCategory = "\uC804\uCCB4", onClose, onRefresh, onViewR2 }) {
+  const ALL_TAB = "\uC804\uCCB4";
+  const counts = photoInfo?.counts || job?.photoCounts || {};
+  const urls = photoInfo?.urls || job?.photoUrls || {};
+  const tabs = [ALL_TAB, ...PHOTO_CATEGORY_OPTIONS];
+  const r2Photos = useMemo(() => photos.filter((photo) => String(photo.storageLocation || "").toLowerCase() === "r2" || !!photo.storageKey), [photos]);
+  const [activeCategory, setActiveCategory] = useState(initialCategory || ALL_TAB);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [imageUrl, setImageUrl] = useState("");
+  const [imageLoading, setImageLoading] = useState(false);
+  const [imageError, setImageError] = useState("");
+  const [secretDraft, setSecretDraft] = useState(() => readR2WorkerSecret());
+  const [secretVersion, setSecretVersion] = useState(0);
+  const touchStartXRef = useRef(null);
+  const viewUrlCacheRef = useRef({});
+
+  const visiblePhotos = useMemo(() => {
+    if (activeCategory === ALL_TAB) return r2Photos;
+    return r2Photos.filter((photo) => photo.photoCategory === activeCategory);
+  }, [activeCategory, r2Photos]);
+
+  const categoryCount = (category) => {
+    const r2Count = category === ALL_TAB ? r2Photos.length : r2Photos.filter((photo) => photo.photoCategory === category).length;
+    const fallbackCount = category === ALL_TAB ? PHOTO_CATEGORY_OPTIONS.reduce((sum, key) => sum + numberValue(counts?.[key]), 0) : numberValue(counts?.[category]);
+    return r2Count + fallbackCount;
+  };
+
+  const activePhoto = visiblePhotos[activeIndex] || null;
+  const fallbackCount = activeCategory === ALL_TAB ? PHOTO_CATEGORY_OPTIONS.reduce((sum, key) => sum + numberValue(counts?.[key]), 0) : numberValue(counts?.[activeCategory]);
+  const fallbackUrl = activeCategory === ALL_TAB ? job?.photoUrl : urls?.[activeCategory] || job?.photoUrl || "";
+  const hasFallback = !!fallbackUrl && fallbackCount > 0;
+  const hasPhotos = visiblePhotos.length > 0 || hasFallback;
+  const needsSecret = visiblePhotos.length > 0 && !readR2WorkerSecret().trim();
+
+  useEffect(() => {
+    setActiveCategory(initialCategory || ALL_TAB);
+  }, [initialCategory, job?.rowNumber, job?.month]);
+
+  useEffect(() => {
+    setActiveIndex(0);
+    setImageUrl("");
+    setImageError("");
+  }, [activeCategory, visiblePhotos.length, job?.rowNumber]);
+
+  useEffect(() => {
+    let ignore = false;
+    const loadImage = async () => {
+      if (!activePhoto) {
+        setImageUrl("");
+        setImageError("");
+        return;
+      }
+      const key = activePhoto.photoId || activePhoto.storageKey;
+      if (viewUrlCacheRef.current[key]) {
+        setImageUrl(viewUrlCacheRef.current[key]);
+        return;
+      }
+      setImageLoading(true);
+      setImageError("");
+      try {
+        const url = await onViewR2(activePhoto);
+        if (!ignore) {
+          viewUrlCacheRef.current[key] = url;
+          setImageUrl(url || "");
+          if (!url) setImageError("??? ???? ?????.");
+        }
+      } catch (err) {
+        if (!ignore) {
+          setImageUrl("");
+          setImageError(err?.message || "??? ???? ?????.");
+        }
+      } finally {
+        if (!ignore) setImageLoading(false);
+      }
+    };
+    loadImage();
+    return () => { ignore = true; };
+  }, [activePhoto, secretVersion]);
+
+  const move = (direction) => {
+    if (visiblePhotos.length <= 1) return;
+    setActiveIndex((current) => {
+      const next = current + direction;
+      if (next < 0) return visiblePhotos.length - 1;
+      if (next >= visiblePhotos.length) return 0;
+      return next;
+    });
+  };
+
+  const saveSecret = () => {
+    writeR2WorkerSecret(secretDraft);
+    viewUrlCacheRef.current = {};
+    setSecretVersion((value) => value + 1);
+  };
+
+  if (!job) return null;
+
+  return (
+    <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/50 p-0 md:items-center md:p-4">
+      <div className="max-h-[94vh] w-full max-w-3xl overflow-y-auto rounded-t-[2rem] bg-white p-4 shadow-2xl md:rounded-[2rem] md:p-6">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-xs font-black text-indigo-600">????</p>
+            <h2 className="mt-1 break-words text-xl font-black text-slate-900">{job.customer}</h2>
+            <p className="mt-1 text-xs font-bold text-slate-500">{job.month} / ROW {job.rowNumber} / {installPeriod(job)}</p>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-2xl border p-2 text-slate-500"><X className="h-5 w-5" /></button>
+        </div>
+
+        <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
+          {tabs.map((category) => <button key={category} type="button" onClick={() => setActiveCategory(category)} className={`shrink-0 rounded-2xl px-3 py-2 text-xs font-black ${activeCategory === category ? "bg-slate-900 text-white" : "border bg-white text-slate-600"}`}>{category} {categoryCount(category)}</button>)}
+        </div>
+
+        <div className="mt-3 flex items-center justify-between gap-2">
+          <p className="text-xs font-bold text-slate-500">? {categoryCount(activeCategory)}?</p>
+          <button type="button" onClick={onRefresh} disabled={loading} className="rounded-xl border bg-white px-3 py-2 text-xs font-black text-slate-700 disabled:opacity-50">????</button>
+        </div>
+
+        {loading ? <div className="mt-4 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-black text-white"><Loader2 className="mr-2 inline h-4 w-4 animate-spin" />?? ???? ?</div> : null}
+        {error ? <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 p-3 text-sm font-black text-rose-700">{error}</div> : null}
+
+        {needsSecret || String(imageError || "").includes("Secret") ? (
+          <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-3">
+            <p className="text-sm font-black text-amber-800">?? ?? ???? ?????.</p>
+            <p className="mt-1 text-xs font-bold text-amber-700">?????? Worker Shared Secret? ? ? ???? ????? ?????.</p>
+            <div className="mt-3 flex gap-2">
+              <input type="password" value={secretDraft} onChange={(event) => setSecretDraft(event.target.value)} className="min-w-0 flex-1 rounded-xl border px-3 py-2 text-sm font-bold" placeholder="Worker Shared Secret" />
+              <button type="button" onClick={saveSecret} className="rounded-xl bg-slate-900 px-3 py-2 text-xs font-black text-white">??</button>
+            </div>
+          </div>
+        ) : null}
+
+        {visiblePhotos.length ? (
+          <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-950 p-3 text-white">
+            <div className="relative flex min-h-[280px] items-center justify-center overflow-hidden rounded-xl bg-black md:min-h-[420px]" onTouchStart={(e) => { touchStartXRef.current = e.touches?.[0]?.clientX ?? null; }} onTouchEnd={(e) => { if (touchStartXRef.current === null) return; const endX = e.changedTouches?.[0]?.clientX ?? touchStartXRef.current; const diff = touchStartXRef.current - endX; touchStartXRef.current = null; if (Math.abs(diff) >= 40) move(diff > 0 ? 1 : -1); }}>
+              {imageLoading ? <div className="flex items-center gap-2 text-sm font-bold text-white"><Loader2 className="h-4 w-4 animate-spin" />?? ???? ?</div> : null}
+              {!imageLoading && imageUrl ? <img src={imageUrl} alt="?? ??" className="max-h-[70vh] w-full object-contain" /> : null}
+              {!imageLoading && imageError ? <div className="mx-4 rounded-xl bg-rose-500/15 px-4 py-3 text-center text-sm font-bold text-rose-100">{imageError}</div> : null}
+              {visiblePhotos.length > 1 ? (
+                <>
+                  <button type="button" onClick={() => move(-1)} className="absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-white/90 px-3 py-2 text-lg font-black text-slate-900">{"<"}</button>
+                  <button type="button" onClick={() => move(1)} className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-white/90 px-3 py-2 text-lg font-black text-slate-900">{">"}</button>
+                </>
+              ) : null}
+            </div>
+            <div className="mt-3 flex items-center justify-between gap-3">
+              <p className="text-xs font-bold text-slate-300">{activeCategory} / {activeIndex + 1}/{visiblePhotos.length}</p>
+              <div className="flex max-w-[70%] gap-2 overflow-x-auto">
+                {visiblePhotos.map((photo, index) => <button key={photo.photoId || photo.storageKey} type="button" onClick={() => setActiveIndex(index)} className={`shrink-0 rounded-xl border px-3 py-2 text-xs font-black ${index === activeIndex ? "border-white bg-white text-slate-900" : "border-white/20 bg-white/10 text-white"}`}>{index + 1}</button>)}
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {!loading && !hasPhotos ? <div className="mt-4 rounded-2xl border border-dashed p-8 text-center text-sm font-bold text-slate-400">??? ??? ????.</div> : null}
+
+        {!visiblePhotos.length && hasFallback ? (
+          <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-sm font-black text-slate-900">?? ?? {fallbackCount}?</p>
+            <a href={fallbackUrl} target="_blank" rel="noreferrer" className="mt-3 flex w-full items-center justify-center rounded-2xl bg-slate-900 px-4 py-3 text-sm font-black text-white">?? ?? ??</a>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+function UploadModal({ job, onClose, onSubmit, uploading = false, progress = "", message = "", onPhotoView }) {
   const [category, setCategory] = useState("시공전");
   const [files, setFiles] = useState([]);
   const [localMessage, setLocalMessage] = useState("");
@@ -2422,13 +2807,13 @@ function UploadModal({ job, onClose, onSubmit, uploading = false, progress = "",
         <div className="mt-5 space-y-4">
           <div>
             <FieldLabel>사진 구분</FieldLabel>
-            <select value={category} onChange={(e) => { setCategory(e.target.value); setFiles([]); setLocalMessage(""); }} disabled={uploading} className="w-full rounded-2xl border px-4 py-3 font-bold disabled:opacity-50">
+            <select value={category} onChange={(e) => { setCategory(e.target.value); setFiles([]); setLocalMessage(""); setDone(false); }} disabled={uploading || done} className="w-full rounded-2xl border px-4 py-3 font-bold disabled:opacity-50">
               {PHOTO_CATEGORY_OPTIONS.map((option) => <option key={option}>{option}</option>)}
             </select>
           </div>
           <div>
             <FieldLabel>{category === "계약도면" ? "PDF 또는 이미지 선택" : "갤러리에서 사진 선택"}</FieldLabel>
-            <input type="file" accept={getUploadAccept(category)} multiple disabled={uploading} onChange={(e) => { setFiles(Array.from(e.target.files || [])); setLocalMessage(""); }} className="w-full rounded-2xl border px-4 py-3 text-sm disabled:opacity-50" />
+            <input type="file" accept={getUploadAccept(category)} multiple disabled={uploading || done} onChange={(e) => { setFiles(Array.from(e.target.files || [])); setLocalMessage(""); setDone(false); }} className="w-full rounded-2xl border px-4 py-3 text-sm disabled:opacity-50" />
             {files.length ? <p className="mt-2 text-xs font-bold text-emerald-700">선택됨: {files.length}개</p> : null}
           </div>
         </div>
@@ -2438,7 +2823,7 @@ function UploadModal({ job, onClose, onSubmit, uploading = false, progress = "",
 
         <div className="mt-5 grid grid-cols-2 gap-2">
           <button onClick={onClose} disabled={uploading} className="rounded-2xl border px-4 py-3 text-sm font-black disabled:opacity-50">취소</button>
-          <button onClick={submit} disabled={uploading || !files.length} className="flex items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-black text-white disabled:bg-slate-300">{uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} {uploading ? "등록 중" : "사진등록"}</button>
+          <button onClick={submit} disabled={uploading || !files.length || done} className="flex items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-black text-white disabled:bg-slate-300">{uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} {uploading ? "등록 중" : "사진등록"}</button>
         </div>
       </div>
     </div>
