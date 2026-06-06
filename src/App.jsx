@@ -164,6 +164,10 @@ function logR2Timing(scope, step, start, extra = {}) {
   console.info(`[${scope}] ${step}`, { ms: r2Elapsed(start), ...extra });
 }
 
+function logPartnerLoginTiming(step, start, extra = {}) {
+  console.info(`[partner-login] ${step}`, start ? { ms: r2Elapsed(start), ...extra } : extra);
+}
+
 function normalizePhotoCategory(value) {
   const text = String(value || "").trim();
   if (text === "\uC2DC\uACF5\uD6C4") return "\uC644\uB8CC\uC0AC\uC9C4";
@@ -722,6 +726,8 @@ export default function PartnerInstallerPortal() {
   };
 
   const fetchPartnerJobs = async (loginUser, options = {}) => {
+    const jobsStart = r2Now();
+    logPartnerLoginTiming("getPartnerJobs start", jobsStart, { role: loginUser?.role || "" });
     try {
       const authPassword = options.authPassword || loginUser.authPassword || partnerAuthPassword || "";
       const result = await apiPost({
@@ -732,13 +738,16 @@ export default function PartnerInstallerPortal() {
         engineerName: loginUser.engineerName || "",
       });
 
+
       if (!result.success) {
         if (!options.silent) setLoginMessage(result.message || "현장 목록 조회 실패");
         if (options.throwOnError) throw new Error(result.message || "현장 목록 조회 실패");
         return [];
       }
 
-      return result.rows || [];
+      const rows = result.rows || [];
+      logPartnerLoginTiming("getPartnerJobs done", jobsStart, { count: rows.length });
+      return rows;
     } catch (err) {
       console.error(err);
       if (!options.silent) setLoginMessage(err.message || "현장 목록 API 연결 실패");
@@ -769,11 +778,15 @@ export default function PartnerInstallerPortal() {
     let cancelled = false;
 
     const restoreSession = async () => {
+      const restoreStart = r2Now();
+      logPartnerLoginTiming("login start", restoreStart, { source: "session" });
       try {
         const savedSession = readPartnerSession();
         if (!savedSession?.user) return;
 
         const savedUser = { ...savedSession.user, authPassword: savedSession.authPassword || "" };
+        logPartnerLoginTiming("login api done", restoreStart, { success: true, source: "session" });
+        logPartnerLoginTiming("session restore start", restoreStart, { role: savedUser.role || "" });
 
         const rows = await fetchPartnerJobs(savedUser, { silent: true });
 
@@ -783,6 +796,7 @@ export default function PartnerInstallerPortal() {
         setPartnerAuthPassword(savedSession.authPassword || "");
         writePartnerSession(savedUser, savedSession.authPassword || "");
         setJobs(rows);
+        logPartnerLoginTiming("render jobs", restoreStart, { count: rows.length, source: "session" });
         setScreen(savedUser.mustChangePassword ? "passwordChange" : "portal");
         setActiveTab("today");
 
@@ -815,15 +829,19 @@ export default function PartnerInstallerPortal() {
     return;
   }
 
-  setLoginMessage("로그인 확인 중입니다.");
+  setLoginMessage("\uB85C\uADF8\uC778 \uD655\uC778 \uC911\uC785\uB2C8\uB2E4.");
   setLoginLoading(true);
+  const loginStart = r2Now();
+  logPartnerLoginTiming("login start", loginStart);
 
   try {
+    const loginApiStart = r2Now();
     const result = await apiPost({
       action: "partnerLogin",
       id: trimmedId,
       password: trimmedPw,
     });
+    logPartnerLoginTiming("login api done", loginApiStart, { success: result.success === true });
 
     if (!result.success) {
       setLoginMessage(result.message || "아이디 또는 비밀번호를 확인해 주세요.");
@@ -861,6 +879,7 @@ export default function PartnerInstallerPortal() {
     const rows = await fetchPartnerJobs(loginUser);
 
     setJobs(rows);
+    logPartnerLoginTiming("render jobs", loginStart, { count: rows.length, source: "login" });
     writePartnerSession(loginUser, trimmedPw);
     setLoginPw("");
     setActiveTab("today");
