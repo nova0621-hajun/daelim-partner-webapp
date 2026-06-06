@@ -1566,18 +1566,31 @@ export default function PartnerInstallerPortal() {
       if (!successCount) throw new Error(failures[0]?.reason?.message || "\uC0AC\uC9C4\uB4F1\uB85D \uC2E4\uD328");
 
       const lastDriveResult = driveUploads[driveUploads.length - 1]?.result || {};
-      const countResult = batchSaveResult?.counts ? batchSaveResult : null;
-      if (countResult?.counts) {
-        logR2Timing("photo-upload", "count included", uploadBatchStart, { total: countResult.total || 0 });
-      }
+      let optimisticCounts = {};
+      applyJobUpdate(key, (item) => {
+        optimisticCounts = { ...(item.photoCounts || {}) };
+        optimisticCounts[selectedCategory] = Number(optimisticCounts[selectedCategory] || 0) + successCount;
+        return {
+          ...item,
+          photo: "\uB4F1\uB85D\uC644\uB8CC",
+          photoUrl: lastDriveResult?.folderUrl || item.photoUrl,
+          photoCounts: optimisticCounts,
+          photoUrls: lastDriveResult?.photoUrls || item.photoUrls || {},
+        };
+      });
+      logR2Timing("photo-upload", "count optimistic", uploadBatchStart, { total: Object.values(optimisticCounts).reduce((sum, value) => sum + Number(value || 0), 0) });
 
-      applyJobUpdate(key, (item) => ({
-        ...item,
-        photo: "\uB4F1\uB85D\uC644\uB8CC",
-        photoUrl: lastDriveResult?.folderUrl || item.photoUrl,
-        photoCounts: countResult?.counts || lastDriveResult?.photoCounts || item.photoCounts || {},
-        photoUrls: lastDriveResult?.photoUrls || item.photoUrls || {},
-      }));
+      const countRefreshStart = r2Now();
+      apiPost({ action: "getPhotoMetaCounts", ...authPayload, month, rowNumber: job.rowNumber || "", orderNo, siteId })
+        .then((serverCount) => {
+          logR2Timing("photo-upload", "count background refresh", countRefreshStart, { total: serverCount?.total || 0 });
+          if (serverCount?.success === true && serverCount.counts) {
+            applyJobUpdate(key, (item) => ({ ...item, photoCounts: serverCount.counts || item.photoCounts || {} }));
+          }
+        })
+        .catch((countError) => {
+          console.warn("[photo-upload] count background refresh failed", countError);
+        });
 
       logR2Timing("photo-upload", "batch total", uploadBatchStart, { files: fileList.length, success: successCount, failed: failureCount, storage: r2Uploads.length ? "r2" : "drive" });
       const message = failureCount
