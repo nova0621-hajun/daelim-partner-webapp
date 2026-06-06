@@ -168,6 +168,11 @@ function logPartnerLoginTiming(step, start, extra = {}) {
   console.info(`[partner-login] ${step}`, start ? { ms: r2Elapsed(start), ...extra } : extra);
 }
 
+function getCurrentPortalMonth() {
+  const now = new Date();
+  return `${String(now.getFullYear()).slice(2)}.${String(now.getMonth() + 1).padStart(2, "0")}`;
+}
+
 function normalizePhotoCategory(value) {
   const text = String(value || "").trim();
   if (text === "\uC2DC\uACF5\uD6C4") return "\uC644\uB8CC\uC0AC\uC9C4";
@@ -503,6 +508,7 @@ export default function PartnerInstallerPortal() {
   const [user, setUser] = useState(null);
   const [partnerAuthPassword, setPartnerAuthPassword] = useState("");
   const [jobs, setJobs] = useState([]);
+  const [availableMonths, setAvailableMonths] = useState([]);
   const [engineerOptions, setEngineerOptions] = useState([]);
   const [restoringSession, setRestoringSession] = useState(true);
   const [activeTab, setActiveTab] = useState("today");
@@ -580,17 +586,45 @@ export default function PartnerInstallerPortal() {
   }, [jobs, user]);
 
   const monthOptions = useMemo(() => {
-    return Array.from(new Set(
-      visibleJobs
-        .map((job) => String(job.month || job.sheet || "").trim())
-        .filter(Boolean),
-    )).sort((a, b) => b.localeCompare(a));
-  }, [visibleJobs]);
+    const months = availableMonths.length
+      ? availableMonths
+      : Array.from(new Set(
+        visibleJobs
+          .map((job) => String(job.month || job.sheet || "").trim())
+          .filter(Boolean),
+      ));
+
+    return months.slice().sort((a, b) => b.localeCompare(a));
+  }, [availableMonths, visibleJobs]);
 
   useEffect(() => {
     if (selectedMonth === "all") return;
     if (!monthOptions.includes(selectedMonth)) setSelectedMonth("all");
   }, [monthOptions, selectedMonth]);
+
+  useEffect(() => {
+    if (!user || selectedMonth === "all") return;
+    const hasSelectedMonthJobs = jobs.some((job) => String(job.month || job.sheet || "").trim() === selectedMonth);
+    if (hasSelectedMonthJobs) return;
+
+    let cancelled = false;
+    setRefreshing(true);
+    fetchPartnerJobs(user, { month: selectedMonth, silent: true })
+      .then((rows) => {
+        if (cancelled) return;
+        setJobs((current) => [
+          ...current.filter((job) => String(job.month || job.sheet || "").trim() !== selectedMonth),
+          ...rows,
+        ]);
+      })
+      .finally(() => {
+        if (!cancelled) setRefreshing(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedMonth, user?.loginId, user?.id]);
 
   const monthVisibleJobs = useMemo(() => {
     if (selectedMonth === "all") return visibleJobs;
@@ -727,7 +761,8 @@ export default function PartnerInstallerPortal() {
 
   const fetchPartnerJobs = async (loginUser, options = {}) => {
     const jobsStart = r2Now();
-    logPartnerLoginTiming("getPartnerJobs start", jobsStart, { role: loginUser?.role || "" });
+    const requestMonth = options.month || (selectedMonth !== "all" ? selectedMonth : getCurrentPortalMonth());
+    logPartnerLoginTiming("getPartnerJobs start", jobsStart, { role: loginUser?.role || "", month: requestMonth });
     try {
       const authPassword = options.authPassword || loginUser.authPassword || partnerAuthPassword || "";
       const result = await apiPost({
@@ -736,6 +771,7 @@ export default function PartnerInstallerPortal() {
         role: loginUser.role,
         partnerName: loginUser.partnerName,
         engineerName: loginUser.engineerName || "",
+        month: requestMonth,
       });
 
 
@@ -746,7 +782,8 @@ export default function PartnerInstallerPortal() {
       }
 
       const rows = result.rows || [];
-      logPartnerLoginTiming("getPartnerJobs done", jobsStart, { count: rows.length });
+      if (Array.isArray(result.months)) setAvailableMonths(result.months);
+      logPartnerLoginTiming("getPartnerJobs done", jobsStart, { count: rows.length, month: result.month || requestMonth });
       return rows;
     } catch (err) {
       console.error(err);
