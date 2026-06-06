@@ -2904,6 +2904,7 @@ function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false,
   const imageDisplayStartRef = useRef(null);
   const touchStartXRef = useRef(null);
   const viewUrlCacheRef = useRef({});
+  const viewUrlInFlightRef = useRef({});
 
   const visiblePhotos = useMemo(() => {
     if (activeCategory === ALL_TAB) return r2Photos;
@@ -2939,6 +2940,41 @@ function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false,
     setImageError("");
   }, [activeCategory, visiblePhotos.length, job?.rowNumber]);
 
+  const getPhotoKey = (photo) => photo?.photoId || photo?.storageKey || "";
+
+  const getCachedViewUrl = async (photo, options = {}) => {
+    const key = getPhotoKey(photo);
+    if (!key) return "";
+
+    if (viewUrlCacheRef.current[key]) {
+      console.info("[photo-viewer] cache hit", { photoKey: key });
+      return viewUrlCacheRef.current[key];
+    }
+
+    if (viewUrlInFlightRef.current[key]) {
+      if (options.prefetch) console.info("[photo-viewer] prefetch skipped in-flight", { photoKey: key });
+      return viewUrlInFlightRef.current[key];
+    }
+
+    const start = r2Now();
+    console.info("[photo-viewer] createR2ViewUrl start", { photoKey: key, prefetch: !!options.prefetch });
+    const request = onViewR2(photo)
+      .then((url) => {
+        if (url) viewUrlCacheRef.current[key] = url;
+        console.info("[photo-viewer] createR2ViewUrl done", {
+          photoKey: key,
+          prefetch: !!options.prefetch,
+          ms: r2Elapsed(start),
+        });
+        return url;
+      })
+      .finally(() => {
+        delete viewUrlInFlightRef.current[key];
+      });
+    viewUrlInFlightRef.current[key] = request;
+    return request;
+  };
+
   useEffect(() => {
     let ignore = false;
     const loadImage = async () => {
@@ -2947,19 +2983,11 @@ function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false,
         setImageError("");
         return;
       }
-      const key = activePhoto.photoId || activePhoto.storageKey;
-      if (viewUrlCacheRef.current[key]) {
-        console.info("[photo-viewer] cache hit", { photoKey: key });
-        imageDisplayStartRef.current = r2Now();
-        setImageUrl(viewUrlCacheRef.current[key]);
-        return;
-      }
       setImageLoading(true);
       setImageError("");
       try {
-        const url = await onViewR2(activePhoto);
+        const url = await getCachedViewUrl(activePhoto);
         if (!ignore) {
-          viewUrlCacheRef.current[key] = url;
           imageDisplayStartRef.current = r2Now();
           setImageUrl(url || "");
           if (!url) setImageError("\uC0AC\uC9C4\uC744 \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.");
@@ -2978,31 +3006,39 @@ function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false,
   }, [activePhoto, secretVersion]);
 
   useEffect(() => {
-    if (!activePhoto || visiblePhotos.length <= 1) return;
+    if (!activePhoto || visiblePhotos.length <= 1) return undefined;
     let cancelled = false;
-    const prefetchIndexes = [activeIndex + 1, activeIndex - 1, activeIndex + 2]
-      .map((index) => (index + visiblePhotos.length) % visiblePhotos.length)
-      .filter((index, position, array) => index !== activeIndex && array.indexOf(index) === position);
-    const prefetch = async () => {
-      const start = r2Now();
-      console.info("[photo-viewer] prefetch start", { indexes: prefetchIndexes });
-      await Promise.allSettled(prefetchIndexes.map(async (index) => {
-        const photo = visiblePhotos[index];
-        const key = photo?.photoId || photo?.storageKey;
-        if (!photo || !key || viewUrlCacheRef.current[key]) return;
-        try {
-          const viewUrl = await onViewR2(photo);
-          if (!cancelled && viewUrl) viewUrlCacheRef.current[key] = viewUrl;
-        } catch (error) {
-          console.warn("[photo-viewer] prefetch failed", { index, message: error?.message || String(error) });
-        }
-      }));
-      if (!cancelled) console.info("[photo-viewer] prefetch done", { ms: r2Elapsed(start) });
-    };
-    prefetch();
-    return () => { cancelled = true; };
-  }, [activeIndex, activePhoto, visiblePhotos, onViewR2]);
+    const nextIndex = (activeIndex + 1) % visiblePhotos.length;
+    const photo = visiblePhotos[nextIndex];
+    const key = getPhotoKey(photo);
+    if (!photo || !key) return undefined;
+    if (viewUrlCacheRef.current[key]) {
+      console.info("[photo-viewer] prefetch skipped already cached", { photoKey: key, index: nextIndex });
+      return undefined;
+    }
+    if (viewUrlInFlightRef.current[key]) {
+      console.info("[photo-viewer] prefetch skipped in-flight", { photoKey: key, index: nextIndex });
+      return undefined;
+    }
 
+    const schedule = window.requestIdleCallback || ((callback) => window.setTimeout(callback, 120));
+    const cancelSchedule = window.cancelIdleCallback || window.clearTimeout;
+    const handle = schedule(async () => {
+      if (cancelled) return;
+      const start = r2Now();
+      console.info("[photo-viewer] prefetch queued", { index: nextIndex, photoKey: key });
+      try {
+        await getCachedViewUrl(photo, { prefetch: true });
+        if (!cancelled) console.info("[photo-viewer] prefetch done", { index: nextIndex, ms: r2Elapsed(start) });
+      } catch (error) {
+        console.warn("[photo-viewer] prefetch failed", { index: nextIndex, message: error?.message || String(error) });
+      }
+    });
+    return () => {
+      cancelled = true;
+      cancelSchedule(handle);
+    };
+  }, [activeIndex, activePhoto, visiblePhotos, onViewR2]);
   const move = (direction) => {
     if (visiblePhotos.length <= 1) return;
     setActiveIndex((current) => {
