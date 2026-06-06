@@ -494,6 +494,12 @@ export default function PartnerInstallerPortal() {
   const [engineerDashboardFilter, setEngineerDashboardFilter] = useState("");
   const [detailJob, setDetailJob] = useState(null);
   const [uploadJob, setUploadJob] = useState(null);
+  const [photoViewerJob, setPhotoViewerJob] = useState(null);
+  const [photoViewerPhotos, setPhotoViewerPhotos] = useState([]);
+  const [photoViewerInfo, setPhotoViewerInfo] = useState(null);
+  const [photoViewerLoading, setPhotoViewerLoading] = useState(false);
+  const [photoViewerError, setPhotoViewerError] = useState("");
+  const [photoViewerInitialCategory, setPhotoViewerInitialCategory] = useState("\uC804\uCCB4");
   const [historyJob, setHistoryJob] = useState(null);
   const [assigningJobId, setAssigningJobId] = useState("");
   const [completingJobId, setCompletingJobId] = useState("");
