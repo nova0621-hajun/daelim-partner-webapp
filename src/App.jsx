@@ -2997,7 +2997,7 @@ function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false,
           <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-950 p-3 text-white">
             <div className="relative flex min-h-[280px] items-center justify-center overflow-hidden rounded-xl bg-black md:min-h-[420px]" onTouchStart={(e) => { touchStartXRef.current = e.touches?.[0]?.clientX ?? null; }} onTouchEnd={(e) => { if (touchStartXRef.current === null) return; const endX = e.changedTouches?.[0]?.clientX ?? touchStartXRef.current; const diff = touchStartXRef.current - endX; touchStartXRef.current = null; if (Math.abs(diff) >= 40) move(diff > 0 ? 1 : -1); }}>
               {imageLoading ? <div className="flex items-center gap-2 text-sm font-bold text-white"><Loader2 className="h-4 w-4 animate-spin" />{"\uC0AC\uC9C4 \uBD88\uB7EC\uC624\uB294 \uC911"}</div> : null}
-              {!imageLoading && imageUrl ? <img src={imageUrl} alt="\uC0AC\uC9C4 \uC0C1\uC138" className="max-h-[70vh] w-full object-contain" onLoad={() => logR2Timing("partner-photo-viewer", "image displayed", imageDisplayStartRef.current || r2Now())} /> : null}
+              {!imageLoading && imageUrl ? <button type="button" onClick={() => setZoomOpen(true)} className="flex h-full w-full items-center justify-center" aria-label="\uC0AC\uC9C4 \uD655\uB300\uBCF4\uAE30"><img src={imageUrl} alt="\uC0AC\uC9C4 \uC0C1\uC138" className="max-h-[70vh] w-full object-contain" onLoad={() => logR2Timing("partner-photo-viewer", "image displayed", imageDisplayStartRef.current || r2Now())} /></button> : null}
               {!imageLoading && imageError ? <div className="mx-4 rounded-xl bg-rose-500/15 px-4 py-3 text-center text-sm font-bold text-rose-100">{imageError}</div> : null}
               {visiblePhotos.length > 1 ? (
                 <>
@@ -3024,6 +3024,21 @@ function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false,
           </div>
         ) : null}
       </div>
+      {zoomOpen && imageUrl ? (
+        <div className="fixed inset-0 z-[90] flex flex-col bg-black/95 p-3 text-white md:p-6" onTouchStart={(e) => { touchStartXRef.current = e.touches?.[0]?.clientX ?? null; }} onTouchEnd={(e) => { if (touchStartXRef.current === null) return; const endX = e.changedTouches?.[0]?.clientX ?? touchStartXRef.current; const diff = touchStartXRef.current - endX; touchStartXRef.current = null; if (Math.abs(diff) >= 40) move(diff > 0 ? 1 : -1); }}>
+          <div className="flex items-center justify-between gap-3">
+            <p className="truncate text-sm font-black">{activeCategory} ? {activeIndex + 1} / {visiblePhotos.length}</p>
+            <button type="button" onClick={() => setZoomOpen(false)} className="rounded-full bg-white/15 p-3 text-white"><X className="h-5 w-5" /></button>
+          </div>
+          <div className="relative flex min-h-0 flex-1 items-center justify-center">
+            <img src={imageUrl} alt="\uC0AC\uC9C4 \uC0C1\uC138" className="max-h-full max-w-full object-contain" />
+            {visiblePhotos.length > 1 ? (<>
+              <button type="button" onClick={() => move(-1)} className="absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-white/90 px-4 py-3 text-lg font-black text-slate-900">{"<"}</button>
+              <button type="button" onClick={() => move(1)} className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-white/90 px-4 py-3 text-lg font-black text-slate-900">{">"}</button>
+            </>) : null}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
