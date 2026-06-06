@@ -525,6 +525,7 @@ export default function PartnerInstallerPortal() {
   const [photoViewerLoading, setPhotoViewerLoading] = useState(false);
   const [photoViewerError, setPhotoViewerError] = useState("");
   const [photoViewerInitialCategory, setPhotoViewerInitialCategory] = useState("\uC804\uCCB4");
+  const photoViewerListCacheRef = useRef({});
   const [historyJob, setHistoryJob] = useState(null);
   const [assigningJobId, setAssigningJobId] = useState("");
   const [completingJobId, setCompletingJobId] = useState("");
@@ -1377,9 +1378,18 @@ export default function PartnerInstallerPortal() {
 
   const loadPhotoGallery = async (job, initialCategory = "\uC804\uCCB4") => {
     if (!job || !user) return;
+    const cacheKey = `${job.month || job.sheet || ""}_${job.rowNumber || ""}`;
+    const cachedGallery = photoViewerListCacheRef.current[cacheKey];
     setPhotoViewerJob(job);
     setPhotoViewerInitialCategory(initialCategory || "\uC804\uCCB4");
-    setPhotoViewerLoading(true);
+    if (cachedGallery) {
+      console.info("[photo-viewer] listPhotos cache hit", { key: cacheKey, count: cachedGallery.photos?.length || 0 });
+      setPhotoViewerPhotos(cachedGallery.photos || []);
+      setPhotoViewerInfo(cachedGallery.info || null);
+      setPhotoViewerLoading(false);
+    } else {
+      setPhotoViewerLoading(true);
+    }
     setPhotoViewerError("");
 
     const month = job.month || job.sheet || "";
@@ -1388,6 +1398,7 @@ export default function PartnerInstallerPortal() {
 
     try {
       const listStart = r2Now();
+      console.info("[photo-viewer] listPhotos fetch", { key: cacheKey });
       const result = await apiPost({
         action: "listPhotos",
         ...buildPhotoAuthPayload(),
@@ -1402,12 +1413,16 @@ export default function PartnerInstallerPortal() {
         logR2Timing("partner-photo-viewer", "listPhotos success", listStart, { count: (result.photos || []).length });
         const photos = result.photos || [];
         const actualCounts = countPhotosByCategory(photos);
+        const info = { counts: actualCounts, urls: job.photoUrls || {}, source: "listPhotos" };
         setPhotoViewerPhotos(photos);
-        setPhotoViewerInfo({ counts: actualCounts, urls: job.photoUrls || {}, source: "listPhotos" });
+        setPhotoViewerInfo(info);
+        photoViewerListCacheRef.current[cacheKey] = { photos, info };
         applyJobUpdate(jobKey(job), { photoCounts: actualCounts, photoUrls: job.photoUrls || {} });
       } else {
+        const emptyInfo = { counts: {}, urls: job.photoUrls || {}, source: "listPhotos" };
         setPhotoViewerPhotos([]);
-        setPhotoViewerInfo({ counts: {}, urls: job.photoUrls || {}, source: "listPhotos" });
+        setPhotoViewerInfo(emptyInfo);
+        photoViewerListCacheRef.current[cacheKey] = { photos: [], info: emptyInfo };
         setPhotoViewerError(result.message || "\uC0AC\uC9C4\uC744 \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.");
       }
     } catch (error) {
@@ -1508,6 +1523,7 @@ export default function PartnerInstallerPortal() {
           })
           .catch((countError) => { console.warn("[photo-upload] count background refresh failed", countError); });
 
+        delete photoViewerListCacheRef.current[`${month}_${job.rowNumber || ""}`];
         logR2Timing("photo-upload", "batch total", uploadBatchStart, { files: fileList.length, success: successCount, failed: 0, path: "single", storage: usedStorage });
         const message = usedStorage === "r2"
           ? `${selectedCategory} ${successCount}\uC7A5 \uC0AC\uC9C4\uB4F1\uB85D\uC774 \uC644\uB8CC\uB418\uC5C8\uC2B5\uB2C8\uB2E4.`
@@ -1636,6 +1652,7 @@ export default function PartnerInstallerPortal() {
           console.warn("[photo-upload] count background refresh failed", countError);
         });
 
+      delete photoViewerListCacheRef.current[`${month}_${job.rowNumber || ""}`];
       logR2Timing("photo-upload", "batch total", uploadBatchStart, { files: fileList.length, success: successCount, failed: failureCount, storage: r2Uploads.length ? "r2" : "drive" });
       const message = failureCount
         ? `${successCount}\uC7A5 \uB4F1\uB85D \uC644\uB8CC, ${failureCount}\uC7A5 \uC2E4\uD328`
@@ -2959,6 +2976,32 @@ function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false,
     loadImage();
     return () => { ignore = true; };
   }, [activePhoto, secretVersion]);
+
+  useEffect(() => {
+    if (!activePhoto || visiblePhotos.length <= 1) return;
+    let cancelled = false;
+    const prefetchIndexes = [activeIndex + 1, activeIndex - 1, activeIndex + 2]
+      .map((index) => (index + visiblePhotos.length) % visiblePhotos.length)
+      .filter((index, position, array) => index !== activeIndex && array.indexOf(index) === position);
+    const prefetch = async () => {
+      const start = r2Now();
+      console.info("[photo-viewer] prefetch start", { indexes: prefetchIndexes });
+      await Promise.allSettled(prefetchIndexes.map(async (index) => {
+        const photo = visiblePhotos[index];
+        const key = photo?.photoId || photo?.storageKey;
+        if (!photo || !key || viewUrlCacheRef.current[key]) return;
+        try {
+          const viewUrl = await onViewR2(photo);
+          if (!cancelled && viewUrl) viewUrlCacheRef.current[key] = viewUrl;
+        } catch (error) {
+          console.warn("[photo-viewer] prefetch failed", { index, message: error?.message || String(error) });
+        }
+      }));
+      if (!cancelled) console.info("[photo-viewer] prefetch done", { ms: r2Elapsed(start) });
+    };
+    prefetch();
+    return () => { cancelled = true; };
+  }, [activeIndex, activePhoto, visiblePhotos, onViewR2]);
 
   const move = (direction) => {
     if (visiblePhotos.length <= 1) return;
