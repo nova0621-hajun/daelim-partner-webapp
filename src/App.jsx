@@ -2883,6 +2883,8 @@ function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false,
   const [imageLoading, setImageLoading] = useState(false);
   const [imageError, setImageError] = useState("");
   const [secretVersion, setSecretVersion] = useState(0);
+  const [zoomOpen, setZoomOpen] = useState(false);
+  const imageDisplayStartRef = useRef(null);
   const touchStartXRef = useRef(null);
   const viewUrlCacheRef = useRef({});
 
@@ -2930,6 +2932,8 @@ function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false,
       }
       const key = activePhoto.photoId || activePhoto.storageKey;
       if (viewUrlCacheRef.current[key]) {
+        console.info("[photo-viewer] cache hit", { photoKey: key });
+        imageDisplayStartRef.current = r2Now();
         setImageUrl(viewUrlCacheRef.current[key]);
         return;
       }
@@ -3027,7 +3031,7 @@ function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false,
       {zoomOpen && imageUrl ? (
         <div className="fixed inset-0 z-[90] flex flex-col bg-black/95 p-3 text-white md:p-6" onTouchStart={(e) => { touchStartXRef.current = e.touches?.[0]?.clientX ?? null; }} onTouchEnd={(e) => { if (touchStartXRef.current === null) return; const endX = e.changedTouches?.[0]?.clientX ?? touchStartXRef.current; const diff = touchStartXRef.current - endX; touchStartXRef.current = null; if (Math.abs(diff) >= 40) move(diff > 0 ? 1 : -1); }}>
           <div className="flex items-center justify-between gap-3">
-            <p className="truncate text-sm font-black">{activeCategory} ? {activeIndex + 1} / {visiblePhotos.length}</p>
+            <p className="truncate text-sm font-black">{activeCategory} / {activeIndex + 1} / {visiblePhotos.length}</p>
             <button type="button" onClick={() => setZoomOpen(false)} className="rounded-full bg-white/15 p-3 text-white"><X className="h-5 w-5" /></button>
           </div>
           <div className="relative flex min-h-0 flex-1 items-center justify-center">
