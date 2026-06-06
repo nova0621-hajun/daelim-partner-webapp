@@ -19,6 +19,8 @@ import {
 
 const WEBAPP_URL =
   "https://script.google.com/macros/s/AKfycbzunWIU75WOPAnZLS9MGqgLLJ9-P4P1f59gNpggLcWcEGs_P0NArHOLdKNwwPQGekMewg/exec";
+const R2_POC_WORKER_URL =
+  "https://daelim-r2-photo-worker.nova0621.workers.dev";
 const SESSION_STORAGE_KEY = "daelimPartnerPortalUser";
 const SESSION_TTL = 1000 * 60 * 60 * 8;
 
@@ -191,9 +193,14 @@ async function callR2WorkerApi(path, payload, workerSecret = readR2WorkerSecret(
     throw new Error("Worker Shared Secret\uC774 \uC5C6\uC5B4 R2 \uC5C5\uB85C\uB4DC\uB97C \uC2DC\uC791\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
   }
 
+  const workerUrl = String(R2_POC_WORKER_URL || "").trim();
+  if (!workerUrl) {
+    throw new Error("R2 Worker URL\uC774 \uC124\uC815\uB418\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.");
+  }
+
   let response;
   try {
-    response = await fetch(`${R2_POC_WORKER_URL}${path}`, {
+    response = await fetch(`${workerUrl}${path}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
