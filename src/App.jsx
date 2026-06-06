@@ -1702,6 +1702,7 @@ export default function PartnerInstallerPortal() {
           onComplete={completeJob}
           onCopyAddress={copyAddress}
           addressCopied={copiedAddressJobId === jobKey(detailJob)}
+          onPhotoView={(category) => loadPhotoGallery(detailJob, category || "\uC804\uCCB4")}
         />
       ) : null}
 
@@ -2573,17 +2574,16 @@ function JobDetailModal({ job, user, onClose, onUpload, onHistory, onAssign, eng
           <div className="grid grid-cols-2 gap-2">
             {PHOTO_CATEGORY_OPTIONS.map((category) => {
               const count = job.photoCounts?.[category] || 0;
-              const url = job.photoUrls?.[category] || "";
 
               return (
-                <div key={category} className="rounded-2xl border bg-slate-50 p-3 text-center text-xs font-black text-slate-600">
-                  <p>{category} {count}</p>
-                  {url ? <a href={url} target="_blank" rel="noreferrer" className="mt-2 inline-block text-blue-700 underline">폴더열기</a> : null}
-                </div>
+                <button key={category} type="button" onClick={() => onPhotoView?.(category)} className="rounded-2xl border bg-slate-50 p-3 text-center text-xs font-black text-slate-600 transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700">
+                  <p>{category}</p>
+                  <p className="mt-1 text-sm text-slate-900">{count}{"\uAC1C"}</p>
+                </button>
               );
             })}
           </div>
-          {job.photoUrl ? <a href={job.photoUrl} target="_blank" rel="noreferrer" className="mt-3 flex w-full items-center justify-center rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-black text-emerald-700">전체 사진보기</a> : null}
+          <button type="button" onClick={() => onPhotoView?.("\uC804\uCCB4")} className="mt-3 flex w-full items-center justify-center rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-black text-emerald-700">{"\uC0AC\uC9C4\uBCF4\uAE30"}</button>
           <button onClick={onUpload} disabled={locked} className="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-4 text-sm font-black text-white disabled:bg-slate-300"><Upload className="h-4 w-4" /> {locked ? "잠금" : "사진등록"}</button>
         </DetailBox>
 
@@ -2730,7 +2730,7 @@ function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false,
 
         <div className="mt-3 flex items-center justify-between gap-2">
           <p className="text-xs font-bold text-slate-500">? {categoryCount(activeCategory)}?</p>
-          <button type="button" onClick={onRefresh} disabled={loading} className="rounded-xl border bg-white px-3 py-2 text-xs font-black text-slate-700 disabled:opacity-50">????</button>
+          <button type="button" onClick={onRefresh} disabled={loading} className="rounded-xl border bg-white px-3 py-2 text-xs font-black text-slate-700 disabled:opacity-50">{"\uC0C8\uB85C\uACE0\uCE68"}</button>
         </div>
 
         {loading ? <div className="mt-4 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-black text-white"><Loader2 className="mr-2 inline h-4 w-4 animate-spin" />?? ???? ?</div> : null}
@@ -2742,7 +2742,7 @@ function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false,
             <p className="mt-1 text-xs font-bold text-amber-700">?????? Worker Shared Secret? ? ? ???? ????? ?????.</p>
             <div className="mt-3 flex gap-2">
               <input type="password" value={secretDraft} onChange={(event) => setSecretDraft(event.target.value)} className="min-w-0 flex-1 rounded-xl border px-3 py-2 text-sm font-bold" placeholder="Worker Shared Secret" />
-              <button type="button" onClick={saveSecret} className="rounded-xl bg-slate-900 px-3 py-2 text-xs font-black text-white">??</button>
+              <button type="button" onClick={saveSecret} className="rounded-xl bg-slate-900 px-3 py-2 text-xs font-black text-white">{"\uC800\uC7A5"}</button>
             </div>
           </div>
         ) : null}
@@ -2785,6 +2785,7 @@ function UploadModal({ job, onClose, onSubmit, uploading = false, progress = "",
   const [category, setCategory] = useState("시공전");
   const [files, setFiles] = useState([]);
   const [localMessage, setLocalMessage] = useState("");
+  const [uploadDone, setUploadDone] = useState(false);
 
   const submit = async () => {
     const check = validateUploadFiles(files, category);
@@ -2795,7 +2796,13 @@ function UploadModal({ job, onClose, onSubmit, uploading = false, progress = "",
     }
 
     setLocalMessage("");
-    await onSubmit(job, category, files);
+    try {
+      const ok = await onSubmit(job, category, files);
+      if (ok) setUploadDone(true);
+    } catch (error) {
+      console.error(error);
+      setLocalMessage(error?.message || "\uC0AC\uC9C4\uB4F1\uB85D \uC911 \uC624\uB958\uAC00 \uBC1C\uC0DD\uD588\uC2B5\uB2C8\uB2E4.");
+    }
   };
 
   return (
@@ -2813,24 +2820,33 @@ function UploadModal({ job, onClose, onSubmit, uploading = false, progress = "",
         <div className="mt-5 space-y-4">
           <div>
             <FieldLabel>사진 구분</FieldLabel>
-            <select value={category} onChange={(e) => { setCategory(e.target.value); setFiles([]); setLocalMessage(""); setDone(false); }} disabled={uploading || done} className="w-full rounded-2xl border px-4 py-3 font-bold disabled:opacity-50">
+            <select value={category} onChange={(e) => { setCategory(e.target.value); setFiles([]); setLocalMessage(""); setUploadDone(false); }} disabled={uploading || uploadDone} className="w-full rounded-2xl border px-4 py-3 font-bold disabled:opacity-50">
               {PHOTO_CATEGORY_OPTIONS.map((option) => <option key={option}>{option}</option>)}
             </select>
           </div>
           <div>
             <FieldLabel>{category === "계약도면" ? "PDF 또는 이미지 선택" : "갤러리에서 사진 선택"}</FieldLabel>
-            <input type="file" accept={getUploadAccept(category)} multiple disabled={uploading || done} onChange={(e) => { setFiles(Array.from(e.target.files || [])); setLocalMessage(""); setDone(false); }} className="w-full rounded-2xl border px-4 py-3 text-sm disabled:opacity-50" />
+            <input type="file" accept={getUploadAccept(category)} multiple disabled={uploading || uploadDone} onChange={(e) => { setFiles(Array.from(e.target.files || [])); setLocalMessage(""); setUploadDone(false); }} className="w-full rounded-2xl border px-4 py-3 text-sm disabled:opacity-50" />
             {files.length ? <p className="mt-2 text-xs font-bold text-emerald-700">선택됨: {files.length}개</p> : null}
           </div>
         </div>
 
         {progress ? <div className="mt-4 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-black text-white"><Loader2 className="mr-2 inline h-4 w-4 animate-spin" />{progress}</div> : null}
+        {uploadDone ? <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-black text-emerald-700">{"\uC0AC\uC9C4\uB4F1\uB85D \uC644\uB8CC"}</div> : null}
         {localMessage || message ? <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm font-black text-rose-700">{localMessage || message}</div> : null}
 
-        <div className="mt-5 grid grid-cols-2 gap-2">
-          <button onClick={onClose} disabled={uploading} className="rounded-2xl border px-4 py-3 text-sm font-black disabled:opacity-50">취소</button>
-          <button onClick={submit} disabled={uploading || !files.length || done} className="flex items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-black text-white disabled:bg-slate-300">{uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} {uploading ? "등록 중" : "사진등록"}</button>
-        </div>
+        {uploadDone ? (
+          <div className="mt-5 grid grid-cols-3 gap-2">
+            <button onClick={onPhotoView} className="rounded-2xl bg-emerald-600 px-3 py-3 text-xs font-black text-white">{"\uC0AC\uC9C4\uBCF4\uAE30"}</button>
+            <button onClick={() => { setFiles([]); setLocalMessage(""); setUploadDone(false); }} className="rounded-2xl border px-3 py-3 text-xs font-black">{"\uACC4\uC18D \uB4F1\uB85D"}</button>
+            <button onClick={onClose} className="rounded-2xl border px-3 py-3 text-xs font-black">{"\uB2EB\uAE30"}</button>
+          </div>
+        ) : (
+          <div className="mt-5 grid grid-cols-2 gap-2">
+            <button onClick={onClose} disabled={uploading} className="rounded-2xl border px-4 py-3 text-sm font-black disabled:opacity-50">{"\uCDE8\uC18C"}</button>
+            <button onClick={submit} disabled={uploading || !files.length || uploadDone} className="flex items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-black text-white disabled:bg-slate-300">{uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} {uploading ? "\uB4F1\uB85D \uC911" : "\uC0AC\uC9C4\uB4F1\uB85D"}</button>
+          </div>
+        )}
       </div>
     </div>
   );
