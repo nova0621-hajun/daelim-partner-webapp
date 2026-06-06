@@ -357,6 +357,17 @@ function isJobLocked(job) {
   return job.editLocked === true || job.locked === true || lockValue === "Y" || lockValue === "TRUE";
 }
 
+function countPhotosByCategory(photos = []) {
+  const counts = {};
+  PHOTO_CATEGORY_OPTIONS.forEach((category) => {
+    counts[category] = 0;
+  });
+  photos.forEach((photo) => {
+    const category = normalizePhotoCategory(photo?.photoCategory);
+    counts[category] = (counts[category] || 0) + 1;
+  });
+  return counts;
+}
 function completionPhotoCount(job) {
   return Number(job?.photoCounts?.완료사진 || 0);
 }
@@ -557,7 +568,7 @@ export default function PartnerInstallerPortal() {
           siteId: detailJob.id || detailJob.jobId || `${detailJob.month}-ROW${detailJob.rowNumber}`,
         });
 
-        if (ignore || !result.success || Number(result.total || 0) <= 0) return;
+        if (ignore || !result.success) return;
 
         const key = jobKey(detailJob);
         applyJobUpdate(key, {
@@ -1349,15 +1360,19 @@ export default function PartnerInstallerPortal() {
       });
 
       if (result.success) {
-        setPhotoViewerPhotos(result.photos || []);
+        const photos = result.photos || [];
+        const actualCounts = countPhotosByCategory(photos);
+        setPhotoViewerPhotos(photos);
+        setPhotoViewerInfo({ counts: actualCounts, urls: job.photoUrls || {}, source: "listPhotos" });
+        applyJobUpdate(jobKey(job), { photoCounts: actualCounts, photoUrls: job.photoUrls || {} });
       } else {
         setPhotoViewerPhotos([]);
+        setPhotoViewerInfo({ counts: {}, urls: job.photoUrls || {}, source: "listPhotos" });
         setPhotoViewerError(result.message || "\uC0AC\uC9C4\uC744 \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.");
       }
-      setPhotoViewerInfo({ counts: job.photoCounts || {}, urls: job.photoUrls || {}, source: "job" });
     } catch (error) {
       setPhotoViewerPhotos([]);
-      setPhotoViewerInfo({ counts: job.photoCounts || {}, urls: job.photoUrls || {}, source: "job" });
+      setPhotoViewerInfo({ counts: {}, urls: job.photoUrls || {}, source: "listPhotos" });
       setPhotoViewerError(error?.message || "\uC0AC\uC9C4\uC744 \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.");
     } finally {
       setPhotoViewerLoading(false);
@@ -1487,15 +1502,7 @@ export default function PartnerInstallerPortal() {
       }
 
       applyJobUpdate(key, (item) => {
-        const currentCounts = item.photoCounts || {};
-        const nextCounts = countResult?.counts
-          ? countResult.counts
-          : lastResult?.photoCounts
-            ? lastResult.photoCounts
-            : {
-                ...currentCounts,
-                [selectedCategory]: (currentCounts[selectedCategory] || 0) + fileList.length,
-              };
+        const nextCounts = countResult?.counts || lastResult?.photoCounts || item.photoCounts || {};
 
         return {
           ...item,
@@ -2764,15 +2771,19 @@ function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false,
   }, [activeCategory, r2Photos]);
 
   const categoryCount = (category) => {
-    const r2Count = category === ALL_TAB ? r2Photos.length : r2Photos.filter((photo) => photo.photoCategory === category).length;
-    const fallbackCount = category === ALL_TAB ? PHOTO_CATEGORY_OPTIONS.reduce((sum, key) => sum + numberValue(counts?.[key]), 0) : numberValue(counts?.[category]);
-    return r2Count + fallbackCount;
+    const actualCount = category === ALL_TAB
+      ? r2Photos.length
+      : r2Photos.filter((photo) => normalizePhotoCategory(photo.photoCategory) === category).length;
+    const fallbackCount = category === ALL_TAB
+      ? PHOTO_CATEGORY_OPTIONS.reduce((sum, key) => sum + numberValue(counts?.[key]), 0)
+      : numberValue(counts?.[category]);
+    return actualCount || fallbackCount;
   };
   const categoryCountLabel = (category) => `${category} ${categoryCount(category)}\uC7A5`;
   const activeCountLabel = `${activeCategory === ALL_TAB ? "\uC804\uCCB4" : activeCategory} ${categoryCount(activeCategory)}\uC7A5`;
 
   const activePhoto = visiblePhotos[activeIndex] || null;
-  const fallbackCount = activeCategory === ALL_TAB ? PHOTO_CATEGORY_OPTIONS.reduce((sum, key) => sum + numberValue(counts?.[key]), 0) : numberValue(counts?.[activeCategory]);
+  const fallbackCount = visiblePhotos.length ? 0 : (activeCategory === ALL_TAB ? PHOTO_CATEGORY_OPTIONS.reduce((sum, key) => sum + numberValue(counts?.[key]), 0) : numberValue(counts?.[activeCategory]));
   const fallbackUrl = activeCategory === ALL_TAB ? job?.photoUrl : urls?.[activeCategory] || job?.photoUrl || "";
   const hasFallback = !!fallbackUrl && fallbackCount > 0;
   const hasPhotos = visiblePhotos.length > 0 || hasFallback;
