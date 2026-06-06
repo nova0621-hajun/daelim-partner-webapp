@@ -190,7 +190,9 @@ async function callR2WorkerApi(path, payload = {}) {
     ? "presignR2Upload"
     : path === "/presignView"
       ? "presignR2View"
-      : "";
+      : path === "/batchPresignView"
+        ? "batchCreateR2ViewUrls"
+        : "";
 
   if (!action) {
     throw new Error("\uC9C0\uC6D0\uD558\uC9C0 \uC54A\uB294 R2 \uC694\uCCAD\uC785\uB2C8\uB2E4.");
@@ -1451,6 +1453,32 @@ export default function PartnerInstallerPortal() {
     logR2Timing("partner-photo-viewer", "createR2ViewUrl success", viewStart);
     return data.viewUrl;
   };
+
+  const viewR2Photos = async (photos = []) => {
+    const job = photoViewerJob || {};
+    const month = job.month || job.sheet || "";
+    const rowNumber = job.rowNumber || "";
+    const viewStart = r2Now();
+    const data = await callR2WorkerApi("/batchPresignView", {
+      ...buildPhotoAuthPayload(),
+      photos: photos.map((photo) => ({
+        storageKey: photo.storageKey,
+        photoId: photo.photoId,
+        month: photo.month || month,
+        rowNumber: photo.rowNumber || rowNumber,
+        orderNo: job.id || job.jobId || photo.orderNo || "",
+        siteId: job.id || job.jobId || photo.siteId || (month && rowNumber ? `${month}-ROW${rowNumber}` : ""),
+      })),
+    });
+    logR2Timing("partner-photo-viewer", "batchCreateR2ViewUrls success", viewStart);
+    const resultMap = {};
+    (data.results || []).forEach((result, index) => {
+      const sourcePhoto = photos[Number(result.index ?? index)] || {};
+      const key = result.photoId || sourcePhoto.photoId || result.storageKey || sourcePhoto.storageKey;
+      if (result.success === true && result.viewUrl && key) resultMap[key] = result.viewUrl;
+    });
+    return resultMap;
+  };
   const uploadPhotoFiles = async (job, category, files) => {
     if (!job || !user) return { success: false, message: "\uC798\uBABB\uB41C \uD604\uC7A5\uC785\uB2C8\uB2E4." };
 
@@ -1980,7 +2008,7 @@ export default function PartnerInstallerPortal() {
       ) : null}
 
       {uploadJob ? <UploadModal job={uploadJob} onClose={() => setUploadJob(null)} onSubmit={uploadPhotoFiles} uploading={uploadingJobId === jobKey(uploadJob)} progress={uploadProgress} message={actionMessage} onPhotoView={() => loadPhotoGallery(uploadJob, "\uC804\uCCB4")} /> : null}
-      {photoViewerJob ? <PhotoViewerModal job={photoViewerJob} photos={photoViewerPhotos} photoInfo={photoViewerInfo} loading={photoViewerLoading} error={photoViewerError} initialCategory={photoViewerInitialCategory} onClose={() => setPhotoViewerJob(null)} onRefresh={() => loadPhotoGallery(photoViewerJob, photoViewerInitialCategory)} onViewR2={viewR2Photo} /> : null}
+      {photoViewerJob ? <PhotoViewerModal job={photoViewerJob} photos={photoViewerPhotos} photoInfo={photoViewerInfo} loading={photoViewerLoading} error={photoViewerError} initialCategory={photoViewerInitialCategory} onClose={() => setPhotoViewerJob(null)} onRefresh={() => loadPhotoGallery(photoViewerJob, photoViewerInitialCategory)} onViewR2={viewR2Photo} onViewR2Batch={viewR2Photos} /> : null}
       {historyJob ? <HistoryModal job={historyJob} onClose={() => setHistoryJob(null)} onSubmit={addHistory} saving={historySavingJobId === jobKey(historyJob)} message={actionMessage} /> : null}
     </div>
   );
@@ -2888,7 +2916,7 @@ function PhoneLink({ value }) {
   return <a href={`tel:${onlyDigits(phone)}`} className="font-black text-blue-700 underline decoration-blue-300 underline-offset-2"><Phone className="mr-1 inline h-3.5 w-3.5" />{phone}</a>;
 }
 
-function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false, error = "", initialCategory = "\uC804\uCCB4", onClose, onRefresh, onViewR2 }) {
+function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false, error = "", initialCategory = "\uC804\uCCB4", onClose, onRefresh, onViewR2, onViewR2Batch }) {
   const ALL_TAB = "\uC804\uCCB4";
   const counts = photoInfo?.counts || job?.photoCounts || {};
   const urls = photoInfo?.urls || job?.photoUrls || {};
@@ -2957,11 +2985,11 @@ function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false,
     }
 
     const start = r2Now();
-    console.info("[photo-viewer] createR2ViewUrl start", { photoKey: key, prefetch: !!options.prefetch });
+    console.info("[photo-viewer] single fallback start", { photoKey: key, prefetch: !!options.prefetch });
     const request = onViewR2(photo)
       .then((url) => {
         if (url) viewUrlCacheRef.current[key] = url;
-        console.info("[photo-viewer] createR2ViewUrl done", {
+        console.info("[photo-viewer] single fallback done", {
           photoKey: key,
           prefetch: !!options.prefetch,
           ms: r2Elapsed(start),
@@ -2975,6 +3003,73 @@ function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false,
     return request;
   };
 
+  const getBatchViewUrls = async (targetPhotos = [], options = {}) => {
+    const uniquePhotos = targetPhotos.filter(Boolean).filter((photo, index, list) => {
+      const key = getPhotoKey(photo);
+      return key && list.findIndex((item) => getPhotoKey(item) === key) === index;
+    });
+    const resultMap = {};
+    const batchPhotos = [];
+    const waitPromises = [];
+
+    uniquePhotos.forEach((photo) => {
+      const key = getPhotoKey(photo);
+      if (viewUrlCacheRef.current[key]) {
+        console.info("[photo-viewer] cache hit", { photoKey: key });
+        resultMap[key] = viewUrlCacheRef.current[key];
+        return;
+      }
+      if (viewUrlInFlightRef.current[key]) {
+        console.info(options.prefetch ? "[photo-viewer] prefetch skipped in-flight" : "[photo-viewer] cache wait in-flight", { photoKey: key });
+        waitPromises.push(viewUrlInFlightRef.current[key].then((url) => { resultMap[key] = url; }));
+        return;
+      }
+      batchPhotos.push(photo);
+    });
+
+    if (batchPhotos.length && onViewR2Batch) {
+      const start = r2Now();
+      console.info("[photo-viewer] batchCreateR2ViewUrls start", { total: batchPhotos.length, prefetch: !!options.prefetch });
+      const batchRequest = onViewR2Batch(batchPhotos)
+        .then((batchMap = {}) => {
+          batchPhotos.forEach((photo) => {
+            const key = getPhotoKey(photo);
+            const url = batchMap[key];
+            if (url) {
+              viewUrlCacheRef.current[key] = url;
+              resultMap[key] = url;
+              console.info("[photo-viewer] batch cache set", { photoKey: key });
+            }
+          });
+          console.info("[photo-viewer] batchCreateR2ViewUrls done", { total: batchPhotos.length, ms: r2Elapsed(start) });
+          return batchMap;
+        })
+        .finally(() => {
+          batchPhotos.forEach((photo) => { delete viewUrlInFlightRef.current[getPhotoKey(photo)]; });
+        });
+      batchPhotos.forEach((photo) => {
+        const key = getPhotoKey(photo);
+        viewUrlInFlightRef.current[key] = batchRequest.then((batchMap = {}) => batchMap[key] || "");
+      });
+      waitPromises.push(batchRequest);
+    } else if (batchPhotos.length) {
+      waitPromises.push(...batchPhotos.map((photo) => getCachedViewUrl(photo, options).then((url) => { resultMap[getPhotoKey(photo)] = url; })));
+    }
+
+    if (waitPromises.length) await Promise.allSettled(waitPromises);
+    return resultMap;
+  };
+
+  const getAroundPhotos = (centerIndex, includeActive = true) => {
+    if (!visiblePhotos.length) return [];
+    const indexes = includeActive ? [centerIndex, centerIndex + 1, centerIndex + 2] : [centerIndex + 1, centerIndex + 2];
+    return indexes
+      .map((index) => (index + visiblePhotos.length) % visiblePhotos.length)
+      .filter((index, position, list) => list.indexOf(index) === position)
+      .map((index) => visiblePhotos[index])
+      .filter(Boolean);
+  };
+
   useEffect(() => {
     let ignore = false;
     const loadImage = async () => {
@@ -2986,7 +3081,9 @@ function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false,
       setImageLoading(true);
       setImageError("");
       try {
-        const url = await getCachedViewUrl(activePhoto);
+        const activeKey = getPhotoKey(activePhoto);
+        await getBatchViewUrls(getAroundPhotos(activeIndex, true));
+        const url = viewUrlCacheRef.current[activeKey] || await getCachedViewUrl(activePhoto);
         if (!ignore) {
           imageDisplayStartRef.current = r2Now();
           setImageUrl(url || "");
@@ -3003,42 +3100,42 @@ function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false,
     };
     loadImage();
     return () => { ignore = true; };
-  }, [activePhoto, secretVersion]);
+  }, [activePhoto, activeIndex, secretVersion]);
 
   useEffect(() => {
     if (!activePhoto || visiblePhotos.length <= 1) return undefined;
     let cancelled = false;
-    const nextIndex = (activeIndex + 1) % visiblePhotos.length;
-    const photo = visiblePhotos[nextIndex];
-    const key = getPhotoKey(photo);
-    if (!photo || !key) return undefined;
-    if (viewUrlCacheRef.current[key]) {
-      console.info("[photo-viewer] prefetch skipped already cached", { photoKey: key, index: nextIndex });
-      return undefined;
-    }
-    if (viewUrlInFlightRef.current[key]) {
-      console.info("[photo-viewer] prefetch skipped in-flight", { photoKey: key, index: nextIndex });
-      return undefined;
-    }
-
     const schedule = window.requestIdleCallback || ((callback) => window.setTimeout(callback, 120));
     const cancelSchedule = window.cancelIdleCallback || window.clearTimeout;
     const handle = schedule(async () => {
       if (cancelled) return;
       const start = r2Now();
-      console.info("[photo-viewer] prefetch queued", { index: nextIndex, photoKey: key });
+      const targets = getAroundPhotos(activeIndex, false).filter((photo) => {
+        const key = getPhotoKey(photo);
+        if (viewUrlCacheRef.current[key]) {
+          console.info("[photo-viewer] prefetch skipped already cached", { photoKey: key });
+          return false;
+        }
+        if (viewUrlInFlightRef.current[key]) {
+          console.info("[photo-viewer] prefetch skipped in-flight", { photoKey: key });
+          return false;
+        }
+        return true;
+      });
+      if (!targets.length) return;
+      console.info("[photo-viewer] prefetch queued", { total: targets.length });
       try {
-        await getCachedViewUrl(photo, { prefetch: true });
-        if (!cancelled) console.info("[photo-viewer] prefetch done", { index: nextIndex, ms: r2Elapsed(start) });
+        await getBatchViewUrls(targets, { prefetch: true });
+        if (!cancelled) console.info("[photo-viewer] prefetch done", { total: targets.length, ms: r2Elapsed(start) });
       } catch (error) {
-        console.warn("[photo-viewer] prefetch failed", { index: nextIndex, message: error?.message || String(error) });
+        console.warn("[photo-viewer] prefetch failed", { message: error?.message || String(error) });
       }
     });
     return () => {
       cancelled = true;
       cancelSchedule(handle);
     };
-  }, [activeIndex, activePhoto, visiblePhotos, onViewR2]);
+  }, [activeIndex, activePhoto, visiblePhotos, onViewR2, onViewR2Batch]);
   const move = (direction) => {
     if (visiblePhotos.length <= 1) return;
     setActiveIndex((current) => {
