@@ -1507,10 +1507,23 @@ export default function PartnerInstallerPortal() {
       let countResult = null;
 
       if (usedR2Upload) {
-        const countStart = r2Now();
-        countResult = await apiPost({ action: "getPhotoMetaCounts", ...buildPhotoAuthPayload(), month, rowNumber: job.rowNumber || "", orderNo, siteId });
-        if (countResult.success !== true) throw new Error(countResult.message || "\uC0AC\uC9C4 \uAC1C\uC218 \uAC31\uC2E0 \uC2E4\uD328");
-        logR2Timing("photo-upload", "count refresh", countStart, { total: countResult.total || 0 });
+        const r2CountResults = successes
+          .map((item) => item.result)
+          .filter((result) => result?.counts);
+        countResult = r2CountResults.reduce((best, result) => {
+          const bestTotal = Number(best?.total || 0);
+          const nextTotal = Number(result?.total || 0);
+          return nextTotal >= bestTotal ? result : best;
+        }, null);
+
+        if (countResult?.counts) {
+          logR2Timing("photo-upload", "count included", uploadBatchStart, { total: countResult.total || 0 });
+        } else {
+          const countStart = r2Now();
+          countResult = await apiPost({ action: "getPhotoMetaCounts", ...buildPhotoAuthPayload(), month, rowNumber: job.rowNumber || "", orderNo, siteId });
+          if (countResult.success !== true) throw new Error(countResult.message || "\uC0AC\uC9C4 \uAC1C\uC218 \uAC31\uC2E0 \uC2E4\uD328");
+          logR2Timing("photo-upload", "count fallback", countStart, { total: countResult.total || 0 });
+        }
       }
 
       applyJobUpdate(key, (item) => ({
