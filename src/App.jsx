@@ -150,6 +150,20 @@ function parseApiJsonResponse(text) {
   }
 }
 
+function r2Now() {
+  return typeof performance !== "undefined" && performance.now
+    ? performance.now()
+    : Date.now();
+}
+
+function r2Elapsed(start) {
+  return Math.round(r2Now() - start);
+}
+
+function logR2Timing(scope, step, start, extra = {}) {
+  console.info(`[${scope}] ${step}`, { ms: r2Elapsed(start), ...extra });
+}
+
 function normalizePhotoCategory(value) {
   const text = String(value || "").trim();
   if (text === "\uC2DC\uACF5\uD6C4") return "\uC644\uB8CC\uC0AC\uC9C4";
@@ -761,10 +775,7 @@ export default function PartnerInstallerPortal() {
 
         const savedUser = { ...savedSession.user, authPassword: savedSession.authPassword || "" };
 
-        const [rows, engineers] = await Promise.all([
-          fetchPartnerJobs(savedUser, { silent: true }),
-          fetchEngineerOptions(savedUser),
-        ]);
+        const rows = await fetchPartnerJobs(savedUser, { silent: true });
 
         if (cancelled) return;
 
@@ -772,9 +783,12 @@ export default function PartnerInstallerPortal() {
         setPartnerAuthPassword(savedSession.authPassword || "");
         writePartnerSession(savedUser, savedSession.authPassword || "");
         setJobs(rows);
-        setEngineerOptions(engineers);
         setScreen(savedUser.mustChangePassword ? "passwordChange" : "portal");
         setActiveTab("today");
+
+        fetchEngineerOptions(savedUser).then((engineers) => {
+          if (!cancelled) setEngineerOptions(engineers);
+        });
       } catch (err) {
         console.error(err);
         clearPartnerSession();
@@ -844,17 +858,16 @@ export default function PartnerInstallerPortal() {
       return;
     }
 
-    const [rows, engineers] = await Promise.all([
-      fetchPartnerJobs(loginUser),
-      fetchEngineerOptions(loginUser),
-    ]);
+    const rows = await fetchPartnerJobs(loginUser);
 
     setJobs(rows);
-    setEngineerOptions(engineers);
     writePartnerSession(loginUser, trimmedPw);
     setLoginPw("");
     setActiveTab("today");
     setScreen("portal");
+    setLoginLoading(false);
+
+    fetchEngineerOptions(loginUser).then(setEngineerOptions);
   } catch (err) {
     console.error(err);
     setLoginMessage(err.message || "로그인 API 연결 실패");
@@ -905,15 +918,11 @@ export default function PartnerInstallerPortal() {
       authPassword: nextPassword,
     };
 
-    const [rows, engineers] = await Promise.all([
-      fetchPartnerJobs(nextUser),
-      fetchEngineerOptions(nextUser),
-    ]);
+    const rows = await fetchPartnerJobs(nextUser);
 
     setUser(nextUser);
     setPartnerAuthPassword(nextPassword);
     setJobs(rows);
-    setEngineerOptions(engineers);
     writePartnerSession(nextUser, nextPassword);
 
     setNextPassword("");
@@ -922,6 +931,9 @@ export default function PartnerInstallerPortal() {
     setPasswordChangeMessage("");
     setActiveTab("today");
     setScreen("portal");
+    setPasswordChanging(false);
+
+    fetchEngineerOptions(nextUser).then(setEngineerOptions);
   } catch (err) {
     console.error(err);
     setPasswordChangeMessage(err.message || "비밀번호 변경 API 연결 실패");
@@ -1204,12 +1216,14 @@ export default function PartnerInstallerPortal() {
   const buildPhotoAuthPayload = () => partnerAuthPayload(user, partnerAuthPassword || user?.authPassword || "");
 
   const uploadPhotoToR2 = async ({ job, uploadFile, originalFile, selectedCategory }) => {
+    const totalStart = r2Now();
     console.info("[partner-photo-upload] r2 upload flow entered");
     const month = job.month || job.sheet || "";
     const siteId = job.id || job.jobId || `${month}-ROW${job.rowNumber}`;
     const orderNo = job.id || job.jobId || "";
     const category = normalizePhotoCategory(selectedCategory);
 
+    const presignStart = r2Now();
     console.info("[partner-photo-upload] presignUpload start");
     const presign = await callR2WorkerApi("/presignUpload", {
       ...buildPhotoAuthPayload(),
@@ -1230,8 +1244,9 @@ export default function PartnerInstallerPortal() {
     if (presign.success !== true || !presign.uploadUrl || !presign.storageKey || !presign.fileName) {
       throw new Error("R2 \uC5C5\uB85C\uB4DC URL \uBC1C\uAE09 \uC2E4\uD328");
     }
-    console.info("[partner-photo-upload] presignUpload success");
+    logR2Timing("partner-photo-upload", "presignUpload success", presignStart);
 
+    const putStart = r2Now();
     console.info("[partner-photo-upload] r2 put start");
     const uploadResponse = await fetch(presign.uploadUrl, {
       method: "PUT",
@@ -1242,8 +1257,9 @@ export default function PartnerInstallerPortal() {
     if (!uploadResponse.ok) {
       throw new Error(`R2 \uD30C\uC77C \uC5C5\uB85C\uB4DC \uC2E4\uD328 (${uploadResponse.status})`);
     }
-    console.info("[partner-photo-upload] r2 put success");
+    logR2Timing("partner-photo-upload", "r2 put success", putStart, { size: uploadFile.size });
 
+    const metaStart = r2Now();
     console.info("[partner-photo-upload] savePhotoMeta start");
     const metaResult = await apiPost({
       action: "savePhotoMeta",
@@ -1271,7 +1287,8 @@ export default function PartnerInstallerPortal() {
     if (metaResult.success !== true || (!metaResult.photoId && !metaResult.savedMeta)) {
       throw new Error(metaResult.message || "PHOTO_META \uC800\uC7A5 \uC2E4\uD328");
     }
-    console.info("[partner-photo-upload] savePhotoMeta success");
+    logR2Timing("partner-photo-upload", "savePhotoMeta success", metaStart);
+    logR2Timing("partner-photo-upload", "file total", totalStart, { category });
 
     return {
       ...metaResult,
@@ -1312,6 +1329,7 @@ export default function PartnerInstallerPortal() {
     const orderNo = job.id || job.jobId || "";
 
     try {
+      const listStart = r2Now();
       const result = await apiPost({
         action: "listPhotos",
         ...buildPhotoAuthPayload(),
@@ -1323,6 +1341,7 @@ export default function PartnerInstallerPortal() {
       });
 
       if (result.success) {
+        logR2Timing("partner-photo-viewer", "listPhotos success", listStart, { count: (result.photos || []).length });
         const photos = result.photos || [];
         const actualCounts = countPhotosByCategory(photos);
         setPhotoViewerPhotos(photos);
@@ -1346,6 +1365,7 @@ export default function PartnerInstallerPortal() {
     const job = photoViewerJob || {};
     const month = job.month || job.sheet || photo.month || "";
     const rowNumber = job.rowNumber || photo.rowNumber || "";
+    const viewStart = r2Now();
     const data = await callR2WorkerApi("/presignView", {
       ...buildPhotoAuthPayload(),
       storageKey: photo.storageKey,
@@ -1355,6 +1375,7 @@ export default function PartnerInstallerPortal() {
       orderNo: job.id || job.jobId || photo.orderNo || "",
       siteId: job.id || job.jobId || photo.siteId || (month && rowNumber ? `${month}-ROW${rowNumber}` : ""),
     });
+    logR2Timing("partner-photo-viewer", "createR2ViewUrl success", viewStart);
     return data.viewUrl;
   };
   const uploadPhotoFiles = async (job, category, files) => {
@@ -1379,6 +1400,7 @@ export default function PartnerInstallerPortal() {
       return { success: false, message: check.message };
     }
 
+    const uploadBatchStart = r2Now();
     setUploadingJobId(key);
     setUploadProgress("\uC5C5\uB85C\uB4DC \uC900\uBE44 \uC911");
     setActionMessage("");
@@ -1394,7 +1416,9 @@ export default function PartnerInstallerPortal() {
         const file = fileList[i];
         const shouldCompress = selectedCategory !== "\uACC4\uC57D\uB3C4\uBA74";
         setUploadProgress(`\uC5C5\uB85C\uB4DC \uC911 \u00B7 ${i + 1}/${fileList.length}`);
+        const compressStart = r2Now();
         const uploadFile = shouldCompress ? await compressImageFile(file) : file;
+        logR2Timing("partner-photo-upload", "compress", compressStart, { index: i + 1, compressed: shouldCompress, originalSize: file.size, uploadSize: uploadFile.size });
 
         try {
           lastResult = await uploadPhotoToR2({
@@ -1430,6 +1454,7 @@ export default function PartnerInstallerPortal() {
       }
 
       if (usedR2Upload) {
+        const confirmListStart = r2Now();
         const listResult = await apiPost({
           action: "listPhotos",
           ...buildPhotoAuthPayload(),
@@ -1444,12 +1469,15 @@ export default function PartnerInstallerPortal() {
           throw new Error(listResult.message || "PHOTO_META \uB4F1\uB85D \uD655\uC778 \uC2E4\uD328");
         }
 
+        logR2Timing("partner-photo-upload", "listPhotos confirm", confirmListStart, { count: (listResult.photos || []).length });
+
         const listedKeys = new Set((listResult.photos || []).map((photo) => String(photo.storageKey || "")).filter(Boolean));
         const missingKeys = uploadedR2Keys.filter((storageKey) => !listedKeys.has(storageKey));
         if (missingKeys.length) {
           throw new Error("PHOTO_META \uB4F1\uB85D \uD655\uC778 \uC2E4\uD328");
         }
 
+        const countStart = r2Now();
         countResult = await apiPost({
           action: "getPhotoMetaCounts",
           ...buildPhotoAuthPayload(),
@@ -1461,6 +1489,7 @@ export default function PartnerInstallerPortal() {
         if (countResult.success !== true) {
           throw new Error(countResult.message || "\uC0AC\uC9C4 \uAC1C\uC218 \uAC31\uC2E0 \uC2E4\uD328");
         }
+        logR2Timing("partner-photo-upload", "count refresh", countStart, { total: countResult.total || 0 });
       }
 
       applyJobUpdate(key, (item) => {
@@ -1475,6 +1504,7 @@ export default function PartnerInstallerPortal() {
         };
       });
 
+      logR2Timing("partner-photo-upload", "batch total", uploadBatchStart, { files: fileList.length, storage: usedR2Upload ? "r2" : "drive" });
       setUploadProgress(usedR2Upload ? "\uC0AC\uC9C4\uB4F1\uB85D \uC644\uB8CC" : "\uAE30\uC874 \uC800\uC7A5\uC18C\uB85C \uC0AC\uC9C4\uB4F1\uB85D \uC644\uB8CC");
       setActionMessage("");
       if (usedDriveFallback && !usedR2Upload) refreshJobsQuietly();
@@ -2778,6 +2808,7 @@ function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false,
         const url = await onViewR2(activePhoto);
         if (!ignore) {
           viewUrlCacheRef.current[key] = url;
+          imageDisplayStartRef.current = r2Now();
           setImageUrl(url || "");
           if (!url) setImageError("\uC0AC\uC9C4\uC744 \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.");
         }
@@ -2835,7 +2866,7 @@ function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false,
           <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-950 p-3 text-white">
             <div className="relative flex min-h-[280px] items-center justify-center overflow-hidden rounded-xl bg-black md:min-h-[420px]" onTouchStart={(e) => { touchStartXRef.current = e.touches?.[0]?.clientX ?? null; }} onTouchEnd={(e) => { if (touchStartXRef.current === null) return; const endX = e.changedTouches?.[0]?.clientX ?? touchStartXRef.current; const diff = touchStartXRef.current - endX; touchStartXRef.current = null; if (Math.abs(diff) >= 40) move(diff > 0 ? 1 : -1); }}>
               {imageLoading ? <div className="flex items-center gap-2 text-sm font-bold text-white"><Loader2 className="h-4 w-4 animate-spin" />{"\uC0AC\uC9C4 \uBD88\uB7EC\uC624\uB294 \uC911"}</div> : null}
-              {!imageLoading && imageUrl ? <img src={imageUrl} alt="\uC0AC\uC9C4 \uC0C1\uC138" className="max-h-[70vh] w-full object-contain" /> : null}
+              {!imageLoading && imageUrl ? <img src={imageUrl} alt="\uC0AC\uC9C4 \uC0C1\uC138" className="max-h-[70vh] w-full object-contain" onLoad={() => logR2Timing("partner-photo-viewer", "image displayed", imageDisplayStartRef.current || r2Now())} /> : null}
               {!imageLoading && imageError ? <div className="mx-4 rounded-xl bg-rose-500/15 px-4 py-3 text-center text-sm font-bold text-rose-100">{imageError}</div> : null}
               {visiblePhotos.length > 1 ? (
                 <>
