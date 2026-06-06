@@ -207,18 +207,26 @@ async function callR2WorkerApi(path, payload = {}) {
 
   return data;
 }
-function compressImageFile(file, maxWidth = 1024, quality = 0.75) {
-  return new Promise((resolve) => {
-    if (!file.type?.startsWith("image/")) {
-      resolve(file);
-      return;
-    }
+function shouldCompressUploadImage(file, category) {
+  const normalizedCategory = normalizePhotoCategory(category);
+  if (normalizedCategory === "\uACC4\uC57D\uB3C4\uBA74") return false;
+  if (!file?.type?.startsWith("image/")) return false;
+  if (file.size <= SMALL_IMAGE_SKIP_COMPRESS_BYTES) return false;
+  return true;
+}
 
+function compressImageFile(file, maxWidth = 1600, quality = 0.82) {
+  return new Promise((resolve) => {
+    if (!file.type?.startsWith("image/")) { resolve(file); return; }
     const image = new Image();
     const objectUrl = URL.createObjectURL(file);
-
     image.onload = () => {
-      const scale = Math.min(1, maxWidth / image.width);
+      if (file.size <= SMALL_IMAGE_SKIP_COMPRESS_BYTES || Math.max(image.width, image.height) <= maxWidth) {
+        URL.revokeObjectURL(objectUrl);
+        resolve(file);
+        return;
+      }
+      const scale = Math.min(1, maxWidth / Math.max(image.width, image.height));
       const width = Math.round(image.width * scale);
       const height = Math.round(image.height * scale);
       const canvas = document.createElement("canvas");
@@ -228,22 +236,15 @@ function compressImageFile(file, maxWidth = 1024, quality = 0.75) {
       ctx.drawImage(image, 0, 0, width, height);
       canvas.toBlob((blob) => {
         URL.revokeObjectURL(objectUrl);
-        if (!blob) {
-          resolve(file);
-          return;
-        }
+        if (!blob) { resolve(file); return; }
         resolve(new File([blob], file.name.replace(/\.[^.]+$/, ".jpg"), { type: "image/jpeg" }));
       }, "image/jpeg", quality);
     };
-
-    image.onerror = () => {
-      URL.revokeObjectURL(objectUrl);
-      resolve(file);
-    };
-
+    image.onerror = () => { URL.revokeObjectURL(objectUrl); resolve(file); };
     image.src = objectUrl;
   });
 }
+
 function onlyDigits(value) {
   return String(value || "").replace(/[^0-9]/g, "");
 }
@@ -1273,14 +1274,14 @@ export default function PartnerInstallerPortal() {
 
   const uploadPhotoToR2 = async ({ job, uploadFile, originalFile, selectedCategory }) => {
     const totalStart = r2Now();
-    console.info("[partner-photo-upload] r2 upload flow entered");
+    console.info("[photo-upload] r2 upload flow entered");
     const month = job.month || job.sheet || "";
     const siteId = job.id || job.jobId || `${month}-ROW${job.rowNumber}`;
     const orderNo = job.id || job.jobId || "";
     const category = normalizePhotoCategory(selectedCategory);
 
     const presignStart = r2Now();
-    console.info("[partner-photo-upload] presignUpload start");
+    console.info("[photo-upload] presignUpload start");
     const presign = await callR2WorkerApi("/presignUpload", {
       ...buildPhotoAuthPayload(),
       month,
@@ -1300,10 +1301,10 @@ export default function PartnerInstallerPortal() {
     if (presign.success !== true || !presign.uploadUrl || !presign.storageKey || !presign.fileName) {
       throw new Error("R2 \uC5C5\uB85C\uB4DC URL \uBC1C\uAE09 \uC2E4\uD328");
     }
-    logR2Timing("partner-photo-upload", "presignUpload success", presignStart);
+    logR2Timing("photo-upload", "presignUpload success", presignStart);
 
     const putStart = r2Now();
-    console.info("[partner-photo-upload] r2 put start");
+    console.info("[photo-upload] r2 put start");
     const uploadResponse = await fetch(presign.uploadUrl, {
       method: "PUT",
       headers: { "Content-Type": uploadFile.type || "application/octet-stream" },
@@ -1313,10 +1314,10 @@ export default function PartnerInstallerPortal() {
     if (!uploadResponse.ok) {
       throw new Error(`R2 \uD30C\uC77C \uC5C5\uB85C\uB4DC \uC2E4\uD328 (${uploadResponse.status})`);
     }
-    logR2Timing("partner-photo-upload", "r2 put success", putStart, { size: uploadFile.size });
+    logR2Timing("photo-upload", "r2 put success", putStart, { size: uploadFile.size });
 
     const metaStart = r2Now();
-    console.info("[partner-photo-upload] savePhotoMeta start");
+    console.info("[photo-upload] savePhotoMeta start");
     const metaResult = await apiPost({
       action: "savePhotoMeta",
       ...buildPhotoAuthPayload(),
@@ -1343,8 +1344,8 @@ export default function PartnerInstallerPortal() {
     if (metaResult.success !== true || (!metaResult.photoId && !metaResult.savedMeta)) {
       throw new Error(metaResult.message || "PHOTO_META \uC800\uC7A5 \uC2E4\uD328");
     }
-    logR2Timing("partner-photo-upload", "savePhotoMeta success", metaStart);
-    logR2Timing("partner-photo-upload", "file total", totalStart, { category });
+    logR2Timing("photo-upload", "savePhotoMeta success", metaStart);
+    logR2Timing("photo-upload", "file total", totalStart, { category });
 
     return {
       ...metaResult,
@@ -1451,128 +1452,89 @@ export default function PartnerInstallerPortal() {
     const siteId = job.id || job.jobId || `${month}-ROW${job.rowNumber}`;
     const orderNo = job.id || job.jobId || "";
 
-    if (!check.ok) {
-      setActionMessage(check.message);
-      return { success: false, message: check.message };
-    }
+    if (!check.ok) { setActionMessage(check.message); return { success: false, message: check.message }; }
 
     const uploadBatchStart = r2Now();
     setUploadingJobId(key);
     setUploadProgress("\uC5C5\uB85C\uB4DC \uC900\uBE44 \uC911");
     setActionMessage("");
 
+    const prepareFile = async (file, index) => {
+      const compressStart = r2Now();
+      const shouldCompress = shouldCompressUploadImage(file, selectedCategory);
+      if (!shouldCompress) {
+        logR2Timing("photo-upload", "compress skipped", compressStart, { index: index + 1, originalSize: file.size });
+        return file;
+      }
+      const uploadFile = await compressImageFile(file);
+      logR2Timing("photo-upload", "compress", compressStart, { index: index + 1, originalSize: file.size, uploadSize: uploadFile.size, skipped: uploadFile === file });
+      return uploadFile;
+    };
+
+    const uploadOne = async (file, index) => {
+      const fileStart = r2Now();
+      const uploadFile = await prepareFile(file, index);
+      try {
+        const result = await uploadPhotoToR2({ job, uploadFile, originalFile: file, selectedCategory });
+        if (result.success !== true || !result.storageKey) throw new Error(result.message || "PHOTO_META \uC800\uC7A5 \uD655\uC778 \uC2E4\uD328");
+        logR2Timing("photo-upload", "file total", fileStart, { index: index + 1, storage: "r2" });
+        return { success: true, result, storage: "r2" };
+      } catch (r2Error) {
+        console.warn("[photo-upload] r2 failed, fallback drive", r2Error);
+        const fallbackResult = await uploadPhotoToDriveFallback({ job, uploadFile, selectedCategory });
+        if (fallbackResult.success !== true) throw new Error(fallbackResult.message || "\uAE30\uC874 \uC800\uC7A5\uC18C \uC0AC\uC9C4\uB4F1\uB85D \uC2E4\uD328");
+        console.info("[photo-upload] fallback drive success");
+        logR2Timing("photo-upload", "file total", fileStart, { index: index + 1, storage: "drive" });
+        return { success: true, result: fallbackResult, storage: "drive" };
+      }
+    };
+
     try {
-      const uploadedR2Keys = [];
-      let lastResult = null;
-      let usedR2Upload = false;
-      let usedDriveFallback = false;
+      const results = [];
+      for (let start = 0; start < fileList.length; start += R2_UPLOAD_CONCURRENCY) {
+        const chunk = fileList.slice(start, start + R2_UPLOAD_CONCURRENCY);
+        setUploadProgress(`\uC5C5\uB85C\uB4DC \uC911 \u00B7 ${Math.min(start + 1, fileList.length)}-${Math.min(start + chunk.length, fileList.length)}/${fileList.length}`);
+        results.push(...await Promise.allSettled(chunk.map((file, chunkIndex) => uploadOne(file, start + chunkIndex))));
+      }
+
+      const successes = results.filter((item) => item.status === "fulfilled" && item.value?.success).map((item) => item.value);
+      const failures = results.filter((item) => item.status === "rejected");
+      if (!successes.length) throw new Error(failures[0]?.reason?.message || "\uC0AC\uC9C4\uB4F1\uB85D \uC2E4\uD328");
+
+      const usedR2Upload = successes.some((item) => item.storage === "r2");
+      const usedDriveFallback = successes.some((item) => item.storage === "drive");
+      const lastResult = successes[successes.length - 1]?.result || {};
       let countResult = null;
 
-      for (let i = 0; i < fileList.length; i += 1) {
-        const file = fileList[i];
-        const shouldCompress = selectedCategory !== "\uACC4\uC57D\uB3C4\uBA74";
-        setUploadProgress(`\uC5C5\uB85C\uB4DC \uC911 \u00B7 ${i + 1}/${fileList.length}`);
-        const compressStart = r2Now();
-        const uploadFile = shouldCompress ? await compressImageFile(file) : file;
-        logR2Timing("partner-photo-upload", "compress", compressStart, { index: i + 1, compressed: shouldCompress, originalSize: file.size, uploadSize: uploadFile.size });
-
-        try {
-          lastResult = await uploadPhotoToR2({
-            job,
-            uploadFile,
-            originalFile: file,
-            selectedCategory,
-          });
-
-          if (lastResult.success !== true || !lastResult.storageKey) {
-            throw new Error(lastResult.message || "PHOTO_META \uC800\uC7A5 \uD655\uC778 \uC2E4\uD328");
-          }
-
-          uploadedR2Keys.push(lastResult.storageKey);
-          usedR2Upload = true;
-        } catch (r2Error) {
-          console.warn("[partner-photo-upload] failed", r2Error);
-          usedDriveFallback = true;
-          lastResult = await uploadPhotoToDriveFallback({
-            job,
-            uploadFile,
-            selectedCategory,
-          });
-          if (lastResult.success !== true) {
-            throw new Error(lastResult.message || "\uAE30\uC874 \uC800\uC7A5\uC18C \uC0AC\uC9C4\uB4F1\uB85D \uC2E4\uD328");
-          }
-          console.info("[partner-photo-upload] fallback drive success");
-        }
-      }
-
-      if (!usedR2Upload && !usedDriveFallback) {
-        throw new Error("R2 \uC5C5\uB85C\uB4DC \uD750\uB984\uC774 \uC2E4\uD589\uB418\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.");
-      }
-
       if (usedR2Upload) {
-        const confirmListStart = r2Now();
-        const listResult = await apiPost({
-          action: "listPhotos",
-          ...buildPhotoAuthPayload(),
-          month,
-          rowNumber: job.rowNumber || "",
-          orderNo,
-          siteId,
-          includeDeleted: false,
-        });
-
-        if (listResult.success !== true) {
-          throw new Error(listResult.message || "PHOTO_META \uB4F1\uB85D \uD655\uC778 \uC2E4\uD328");
-        }
-
-        logR2Timing("partner-photo-upload", "listPhotos confirm", confirmListStart, { count: (listResult.photos || []).length });
-
-        const listedKeys = new Set((listResult.photos || []).map((photo) => String(photo.storageKey || "")).filter(Boolean));
-        const missingKeys = uploadedR2Keys.filter((storageKey) => !listedKeys.has(storageKey));
-        if (missingKeys.length) {
-          throw new Error("PHOTO_META \uB4F1\uB85D \uD655\uC778 \uC2E4\uD328");
-        }
-
         const countStart = r2Now();
-        countResult = await apiPost({
-          action: "getPhotoMetaCounts",
-          ...buildPhotoAuthPayload(),
-          month,
-          rowNumber: job.rowNumber || "",
-          orderNo,
-          siteId,
-        });
-        if (countResult.success !== true) {
-          throw new Error(countResult.message || "\uC0AC\uC9C4 \uAC1C\uC218 \uAC31\uC2E0 \uC2E4\uD328");
-        }
-        logR2Timing("partner-photo-upload", "count refresh", countStart, { total: countResult.total || 0 });
+        countResult = await apiPost({ action: "getPhotoMetaCounts", ...buildPhotoAuthPayload(), month, rowNumber: job.rowNumber || "", orderNo, siteId });
+        if (countResult.success !== true) throw new Error(countResult.message || "\uC0AC\uC9C4 \uAC1C\uC218 \uAC31\uC2E0 \uC2E4\uD328");
+        logR2Timing("photo-upload", "count refresh", countStart, { total: countResult.total || 0 });
       }
 
-      applyJobUpdate(key, (item) => {
-        const nextCounts = countResult?.counts || lastResult?.photoCounts || item.photoCounts || {};
+      applyJobUpdate(key, (item) => ({
+        ...item,
+        photo: "\uB4F1\uB85D\uC644\uB8CC",
+        photoUrl: lastResult?.folderUrl || item.photoUrl,
+        photoCounts: countResult?.counts || lastResult?.photoCounts || item.photoCounts || {},
+        photoUrls: lastResult?.photoUrls || item.photoUrls || {},
+      }));
 
-        return {
-          ...item,
-          photo: "\uB4F1\uB85D\uC644\uB8CC",
-          photoUrl: lastResult?.folderUrl || item.photoUrl,
-          photoCounts: nextCounts,
-          photoUrls: lastResult?.photoUrls || item.photoUrls || {},
-        };
-      });
-
-      logR2Timing("partner-photo-upload", "batch total", uploadBatchStart, { files: fileList.length, storage: usedR2Upload ? "r2" : "drive" });
+      const successCount = successes.length;
+      const failureCount = failures.length;
+      logR2Timing("photo-upload", "batch total", uploadBatchStart, { files: fileList.length, success: successCount, failed: failureCount, storage: usedR2Upload ? "r2" : "drive" });
+      const message = failureCount
+        ? `${successCount}\uC7A5 \uB4F1\uB85D \uC644\uB8CC, ${failureCount}\uC7A5 \uC2E4\uD328`
+        : usedR2Upload
+          ? `${selectedCategory} ${successCount}\uC7A5 \uC0AC\uC9C4\uB4F1\uB85D\uC774 \uC644\uB8CC\uB418\uC5C8\uC2B5\uB2C8\uB2E4.`
+          : "\uAE30\uC874 \uC800\uC7A5\uC18C\uB85C \uC0AC\uC9C4\uB4F1\uB85D\uC774 \uC644\uB8CC\uB418\uC5C8\uC2B5\uB2C8\uB2E4.";
       setUploadProgress(usedR2Upload ? "\uC0AC\uC9C4\uB4F1\uB85D \uC644\uB8CC" : "\uAE30\uC874 \uC800\uC7A5\uC18C\uB85C \uC0AC\uC9C4\uB4F1\uB85D \uC644\uB8CC");
       setActionMessage("");
       if (usedDriveFallback && !usedR2Upload) refreshJobsQuietly();
-      return {
-        success: true,
-        usedStorage: usedR2Upload ? "r2" : "drive",
-        message: usedR2Upload
-          ? `${selectedCategory} ${fileList.length}\uC7A5 \uC0AC\uC9C4\uB4F1\uB85D\uC774 \uC644\uB8CC\uB418\uC5C8\uC2B5\uB2C8\uB2E4.`
-          : "\uAE30\uC874 \uC800\uC7A5\uC18C\uB85C \uC0AC\uC9C4\uB4F1\uB85D\uC774 \uC644\uB8CC\uB418\uC5C8\uC2B5\uB2C8\uB2E4.",
-      };
+      return { success: true, usedStorage: usedR2Upload ? "r2" : "drive", message };
     } catch (err) {
-      console.warn("[partner-photo-upload] failed", err);
+      console.warn("[photo-upload] failed", err);
       const message = err?.message || "\uC0AC\uC9C4\uB4F1\uB85D API \uC5F0\uACB0 \uC2E4\uD328";
       setActionMessage(message);
       return { success: false, message };
