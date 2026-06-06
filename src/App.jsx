@@ -156,45 +156,62 @@ function normalizePhotoCategory(value) {
   return PHOTO_CATEGORY_OPTIONS.includes(text) ? text : "\uAE30\uD0C0";
 }
 
+let r2WorkerSecretMemory = "";
+
 function readR2WorkerSecret() {
   try {
-    return sessionStorage.getItem(R2_POC_SECRET_STORAGE_KEY) || localStorage.getItem(R2_POC_SECRET_STORAGE_KEY) || "";
+    return String(
+      r2WorkerSecretMemory ||
+      localStorage.getItem(R2_POC_SECRET_STORAGE_KEY) ||
+      sessionStorage.getItem(R2_POC_SECRET_STORAGE_KEY) ||
+      ""
+    ).trim();
   } catch (error) {
-    return "";
+    return String(r2WorkerSecretMemory || "").trim();
   }
 }
 
 function writeR2WorkerSecret(value) {
+  const clean = String(value || "").trim();
+  r2WorkerSecretMemory = clean;
   try {
-    const clean = String(value || "").trim();
     if (!clean) {
-      sessionStorage.removeItem(R2_POC_SECRET_STORAGE_KEY);
       localStorage.removeItem(R2_POC_SECRET_STORAGE_KEY);
+      sessionStorage.removeItem(R2_POC_SECRET_STORAGE_KEY);
       return;
     }
-    sessionStorage.setItem(R2_POC_SECRET_STORAGE_KEY, clean);
     localStorage.setItem(R2_POC_SECRET_STORAGE_KEY, clean);
+    sessionStorage.setItem(R2_POC_SECRET_STORAGE_KEY, clean);
   } catch (error) {}
 }
 
 async function callR2WorkerApi(path, payload, workerSecret = readR2WorkerSecret()) {
-  if (!workerSecret.trim()) {
-    throw new Error("\uC0AC\uC9C4\uBCF4\uAE30 \uC124\uC815\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. Worker Shared Secret\uC744 \uC800\uC7A5\uD574 \uC8FC\uC138\uC694.");
+  const cleanSecret = String(workerSecret || readR2WorkerSecret() || "").trim();
+  if (!cleanSecret) {
+    throw new Error("Worker Shared Secret\uC774 \uC5C6\uC5B4 R2 \uC5C5\uB85C\uB4DC\uB97C \uC2DC\uC791\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
   }
 
-  const response = await fetch(`${R2_POC_WORKER_URL}${path}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Daelim-Token": workerSecret,
-    },
-    body: JSON.stringify(payload),
-  });
-  const data = parseApiJsonResponse(await response.text());
-  if (!data.success) throw new Error(data.message || "R2 \uC694\uCCAD\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.");
+  let response;
+  try {
+    response = await fetch(`${R2_POC_WORKER_URL}${path}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Daelim-Token": cleanSecret,
+      },
+      body: JSON.stringify(payload),
+    });
+  } catch (error) {
+    throw new Error(`Worker \uC694\uCCAD \uC2E4\uD328: ${error?.message || error}`);
+  }
+
+  const text = await response.text();
+  const data = parseApiJsonResponse(text);
+  if (!response.ok || data.success !== true) {
+    throw new Error(data.message || `Worker \uC624\uB958 (${response.status})`);
+  }
   return data;
 }
-
 function compressImageFile(file, maxWidth = 1024, quality = 0.75) {
   return new Promise((resolve) => {
     if (!file.type?.startsWith("image/")) {
@@ -1204,10 +1221,18 @@ export default function PartnerInstallerPortal() {
   const buildPhotoAuthPayload = () => partnerAuthPayload(user, partnerAuthPassword || user?.authPassword || "");
 
   const uploadPhotoToR2 = async ({ job, uploadFile, originalFile, selectedCategory }) => {
+    console.info("[partner-photo-upload] r2 upload flow entered");
+    const workerSecret = readR2WorkerSecret();
+    if (!workerSecret) {
+      throw new Error("Worker Shared Secret\uC774 \uC5C6\uC5B4 R2 \uC5C5\uB85C\uB4DC\uB97C \uC2DC\uC791\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    }
+
     const month = job.month || job.sheet || "";
     const siteId = job.id || job.jobId || `${month}-ROW${job.rowNumber}`;
     const orderNo = job.id || job.jobId || "";
     const category = normalizePhotoCategory(selectedCategory);
+
+    console.info("[partner-photo-upload] presignUpload start");
     const presign = await callR2WorkerApi("/presignUpload", {
       orderNo,
       siteId,
@@ -1219,17 +1244,27 @@ export default function PartnerInstallerPortal() {
       uploaderRole: user?.role || "",
       mimeType: uploadFile.type || "application/octet-stream",
       fileSize: uploadFile.size,
-    });
+    }, workerSecret);
 
+    if (presign.success !== true || !presign.uploadUrl || !presign.storageKey || !presign.fileName) {
+      throw new Error("R2 \uC5C5\uB85C\uB4DC URL \uBC1C\uAE09 \uC2E4\uD328");
+    }
+    console.info("[partner-photo-upload] presignUpload success");
+
+    console.info("[partner-photo-upload] r2 put start");
     const uploadResponse = await fetch(presign.uploadUrl, {
       method: "PUT",
       headers: { "Content-Type": uploadFile.type || "application/octet-stream" },
       body: uploadFile,
     });
-    const uploadData = parseApiJsonResponse(await uploadResponse.text());
-    if (!uploadData.success) throw new Error(uploadData.message || "R2 \uC5C5\uB85C\uB4DC\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.");
 
-    return apiPost({
+    if (!uploadResponse.ok) {
+      throw new Error(`R2 \uD30C\uC77C \uC5C5\uB85C\uB4DC \uC2E4\uD328 (${uploadResponse.status})`);
+    }
+    console.info("[partner-photo-upload] r2 put success");
+
+    console.info("[partner-photo-upload] savePhotoMeta start");
+    const metaResult = await apiPost({
       action: "savePhotoMeta",
       ...buildPhotoAuthPayload(),
       orderNo,
@@ -1251,8 +1286,21 @@ export default function PartnerInstallerPortal() {
       fileSize: uploadFile.size,
       source: user?.role || "partner",
     });
-  };
 
+    if (metaResult.success !== true || (!metaResult.photoId && !metaResult.savedMeta)) {
+      throw new Error(metaResult.message || "PHOTO_META \uC800\uC7A5 \uC2E4\uD328");
+    }
+    console.info("[partner-photo-upload] savePhotoMeta success");
+
+    return {
+      ...metaResult,
+      success: true,
+      usedStorage: "r2",
+      storageKey: presign.storageKey,
+      fileName: presign.fileName,
+      photoCategory: category,
+    };
+  };
   const uploadPhotoToDriveFallback = async ({ job, uploadFile, selectedCategory }) => {
     const base64 = await fileToBase64(uploadFile);
     return apiPost({
@@ -1317,21 +1365,32 @@ export default function PartnerInstallerPortal() {
     return data.viewUrl;
   };
   const uploadPhotoFiles = async (job, category, files) => {
-    if (!job || !user) return false;
+    if (!job || !user) return { success: false, message: "\uC798\uBABB\uB41C \uD604\uC7A5\uC785\uB2C8\uB2E4." };
 
     if (isJobLocked(job)) {
-      setActionMessage("\uAD00\uB9AC\uC790\uAC00 \uC7A0\uADFC \uD604\uC7A5\uC785\uB2C8\uB2E4. \uC0AC\uC9C4\uC744 \uB4F1\uB85D\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
-      return false;
+      const message = "\uAD00\uB9AC\uC790\uAC00 \uC7A0\uADFC \uD604\uC7A5\uC785\uB2C8\uB2E4. \uC0AC\uC9C4\uC744 \uB4F1\uB85D\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.";
+      setActionMessage(message);
+      return { success: false, message };
     }
 
     const selectedCategory = normalizePhotoCategory(category);
     const fileList = Array.from(files || []);
     const check = validateUploadFiles(fileList, selectedCategory);
     const key = jobKey(job);
+    const month = job.month || job.sheet || "";
+    const siteId = job.id || job.jobId || `${month}-ROW${job.rowNumber}`;
+    const orderNo = job.id || job.jobId || "";
 
     if (!check.ok) {
       setActionMessage(check.message);
-      return false;
+      return { success: false, message: check.message };
+    }
+
+    const workerSecret = readR2WorkerSecret();
+    if (!workerSecret) {
+      const message = "Worker Shared Secret\uC774 \uC5C6\uC5B4 R2 \uC5C5\uB85C\uB4DC\uB97C \uC2DC\uC791\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.";
+      setActionMessage(message);
+      return { success: false, message };
     }
 
     setUploadingJobId(key);
@@ -1339,9 +1398,11 @@ export default function PartnerInstallerPortal() {
     setActionMessage("");
 
     try {
+      const uploadedR2Keys = [];
       let lastResult = null;
       let usedR2Upload = false;
       let usedDriveFallback = false;
+      let countResult = null;
 
       for (let i = 0; i < fileList.length; i += 1) {
         const file = fileList[i];
@@ -1356,27 +1417,78 @@ export default function PartnerInstallerPortal() {
             originalFile: file,
             selectedCategory,
           });
-          if (!lastResult.success) throw new Error(lastResult.message || "\uC0AC\uC9C4\uB4F1\uB85D\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.");
+
+          if (lastResult.success !== true || !lastResult.storageKey) {
+            throw new Error(lastResult.message || "PHOTO_META \uC800\uC7A5 \uD655\uC778 \uC2E4\uD328");
+          }
+
+          uploadedR2Keys.push(lastResult.storageKey);
           usedR2Upload = true;
         } catch (r2Error) {
+          console.warn("[partner-photo-upload] failed", r2Error);
+          if (!readR2WorkerSecret()) throw r2Error;
+
           usedDriveFallback = true;
           lastResult = await uploadPhotoToDriveFallback({
             job,
             uploadFile,
             selectedCategory,
           });
-          if (!lastResult.success) throw new Error(lastResult.message || "\uC0AC\uC9C4\uB4F1\uB85D\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.");
+          if (lastResult.success !== true) {
+            throw new Error(lastResult.message || "\uAE30\uC874 \uC800\uC7A5\uC18C \uC0AC\uC9C4\uB4F1\uB85D \uC2E4\uD328");
+          }
+          console.info("[partner-photo-upload] fallback drive success");
+        }
+      }
+
+      if (!usedR2Upload && !usedDriveFallback) {
+        throw new Error("R2 \uC5C5\uB85C\uB4DC \uD750\uB984\uC774 \uC2E4\uD589\uB418\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.");
+      }
+
+      if (usedR2Upload) {
+        const listResult = await apiPost({
+          action: "listPhotos",
+          ...buildPhotoAuthPayload(),
+          month,
+          rowNumber: job.rowNumber || "",
+          orderNo,
+          siteId,
+          includeDeleted: false,
+        });
+
+        if (listResult.success !== true) {
+          throw new Error(listResult.message || "PHOTO_META \uB4F1\uB85D \uD655\uC778 \uC2E4\uD328");
+        }
+
+        const listedKeys = new Set((listResult.photos || []).map((photo) => String(photo.storageKey || "")).filter(Boolean));
+        const missingKeys = uploadedR2Keys.filter((storageKey) => !listedKeys.has(storageKey));
+        if (missingKeys.length) {
+          throw new Error("PHOTO_META \uB4F1\uB85D \uD655\uC778 \uC2E4\uD328");
+        }
+
+        countResult = await apiPost({
+          action: "getPhotoMetaCounts",
+          ...buildPhotoAuthPayload(),
+          month,
+          rowNumber: job.rowNumber || "",
+          orderNo,
+          siteId,
+        });
+        if (countResult.success !== true) {
+          throw new Error(countResult.message || "\uC0AC\uC9C4 \uAC1C\uC218 \uAC31\uC2E0 \uC2E4\uD328");
         }
       }
 
       applyJobUpdate(key, (item) => {
         const currentCounts = item.photoCounts || {};
-        const nextCounts = lastResult?.photoCounts
-          ? lastResult.photoCounts
-          : {
-              ...currentCounts,
-              [selectedCategory]: (currentCounts[selectedCategory] || 0) + fileList.length,
-            };
+        const nextCounts = countResult?.counts
+          ? countResult.counts
+          : lastResult?.photoCounts
+            ? lastResult.photoCounts
+            : {
+                ...currentCounts,
+                [selectedCategory]: (currentCounts[selectedCategory] || 0) + fileList.length,
+              };
 
         return {
           ...item,
@@ -1387,14 +1499,21 @@ export default function PartnerInstallerPortal() {
         };
       });
 
-      setUploadProgress("\uC0AC\uC9C4\uB4F1\uB85D \uC644\uB8CC");
+      setUploadProgress(usedR2Upload ? "\uC0AC\uC9C4\uB4F1\uB85D \uC644\uB8CC" : "\uAE30\uC874 \uC800\uC7A5\uC18C\uB85C \uC0AC\uC9C4\uB4F1\uB85D \uC644\uB8CC");
       setActionMessage("");
       if (usedDriveFallback && !usedR2Upload) refreshJobsQuietly();
-      return true;
+      return {
+        success: true,
+        usedStorage: usedR2Upload ? "r2" : "drive",
+        message: usedR2Upload
+          ? `${selectedCategory} ${fileList.length}\uC7A5 \uC0AC\uC9C4\uB4F1\uB85D\uC774 \uC644\uB8CC\uB418\uC5C8\uC2B5\uB2C8\uB2E4.`
+          : "\uAE30\uC874 \uC800\uC7A5\uC18C\uB85C \uC0AC\uC9C4\uB4F1\uB85D\uC774 \uC644\uB8CC\uB418\uC5C8\uC2B5\uB2C8\uB2E4.",
+      };
     } catch (err) {
-      console.error(err);
-      setActionMessage(err.message || "\uC0AC\uC9C4\uB4F1\uB85D API \uC5F0\uACB0 \uC2E4\uD328");
-      return false;
+      console.warn("[partner-photo-upload] failed", err);
+      const message = err?.message || "\uC0AC\uC9C4\uB4F1\uB85D API \uC5F0\uACB0 \uC2E4\uD328";
+      setActionMessage(message);
+      return { success: false, message };
     } finally {
       setUploadingJobId("");
     }
@@ -2805,12 +2924,16 @@ function UploadModal({ job, onClose, onSubmit, uploading = false, progress = "",
 
     setLocalMessage("");
     try {
-      const ok = await onSubmit(job, category, files);
-      if (ok) {
+      const result = await onSubmit(job, category, files);
+      if (result?.success === true || result === true) {
         setLocalMessage("");
         setUploadDone(true);
-        setUploadDoneMessage(`${category} ${files.length}\uC7A5 \uC0AC\uC9C4\uB4F1\uB85D\uC774 \uC644\uB8CC\uB418\uC5C8\uC2B5\uB2C8\uB2E4.`);
+        setUploadDoneMessage(result?.message || `${category} ${files.length}\uC7A5 \uC0AC\uC9C4\uB4F1\uB85D\uC774 \uC644\uB8CC\uB418\uC5C8\uC2B5\uB2C8\uB2E4.`);
+        return;
       }
+      setUploadDone(false);
+      setUploadDoneMessage("");
+      setLocalMessage(result?.message || "\uC0AC\uC9C4\uB4F1\uB85D\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.");
     } catch (error) {
       console.error(error);
       setUploadDone(false);
