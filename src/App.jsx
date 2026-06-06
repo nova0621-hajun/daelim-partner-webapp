@@ -1339,6 +1339,7 @@ export default function PartnerInstallerPortal() {
       mimeType: uploadFile.type || "application/octet-stream",
       fileSize: uploadFile.size,
       source: user?.role || "partner",
+      includeCounts: false,
     });
 
     if (metaResult.success !== true || (!metaResult.photoId && !metaResult.savedMeta)) {
@@ -1474,6 +1475,49 @@ export default function PartnerInstallerPortal() {
     try {
       const preparedItems = await Promise.all(fileList.map(async (file, index) => ({ file, index, uploadFile: await prepareFile(file, index) })));
       const authPayload = buildPhotoAuthPayload();
+      if (preparedItems.length === 1) {
+        const item = preparedItems[0];
+        let usedStorage = "r2";
+        let folderUrl = job.photoUrl || "";
+        try {
+          await uploadPhotoToR2({ job, uploadFile: item.uploadFile, originalFile: item.file, selectedCategory });
+        } catch (r2Error) {
+          console.warn("[photo-upload] single r2 failed, fallback drive", r2Error);
+          const fallbackResult = await uploadPhotoToDriveFallback({ job, uploadFile: item.uploadFile, selectedCategory });
+          if (fallbackResult.success !== true) throw new Error(fallbackResult.message || "\uAE30\uC874 \uC800\uC7A5\uC18C \uC0AC\uC9C4\uB4F1\uB85D \uC2E4\uD328");
+          folderUrl = fallbackResult.folderUrl || folderUrl;
+          usedStorage = "drive";
+        }
+
+        const successCount = 1;
+        let optimisticCounts = {};
+        applyJobUpdate(key, (itemJob) => {
+          optimisticCounts = { ...(itemJob.photoCounts || {}) };
+          optimisticCounts[selectedCategory] = Number(optimisticCounts[selectedCategory] || 0) + successCount;
+          return { ...itemJob, photo: "\uB4F1\uB85D\uC644\uB8CC", photoUrl: folderUrl || itemJob.photoUrl, photoCounts: optimisticCounts };
+        });
+        logR2Timing("photo-upload", "count optimistic", uploadBatchStart, { total: Object.values(optimisticCounts).reduce((sum, value) => sum + Number(value || 0), 0) });
+
+        const countRefreshStart = r2Now();
+        apiPost({ action: "getPhotoMetaCounts", ...authPayload, month, rowNumber: job.rowNumber || "", orderNo, siteId })
+          .then((serverCount) => {
+            logR2Timing("photo-upload", "count background refresh", countRefreshStart, { total: serverCount?.total || 0 });
+            if (serverCount?.success === true && serverCount.counts) {
+              applyJobUpdate(key, (itemJob) => ({ ...itemJob, photoCounts: serverCount.counts || itemJob.photoCounts || {} }));
+            }
+          })
+          .catch((countError) => { console.warn("[photo-upload] count background refresh failed", countError); });
+
+        logR2Timing("photo-upload", "batch total", uploadBatchStart, { files: fileList.length, success: successCount, failed: 0, path: "single", storage: usedStorage });
+        const message = usedStorage === "r2"
+          ? `${selectedCategory} ${successCount}\uC7A5 \uC0AC\uC9C4\uB4F1\uB85D\uC774 \uC644\uB8CC\uB418\uC5C8\uC2B5\uB2C8\uB2E4.`
+          : "\uAE30\uC874 \uC800\uC7A5\uC18C\uB85C \uC0AC\uC9C4\uB4F1\uB85D\uC774 \uC644\uB8CC\uB418\uC5C8\uC2B5\uB2C8\uB2E4.";
+        setUploadProgress(usedStorage === "r2" ? "\uC0AC\uC9C4\uB4F1\uB85D \uC644\uB8CC" : "\uAE30\uC874 \uC800\uC7A5\uC18C\uB85C \uC0AC\uC9C4\uB4F1\uB85D \uC644\uB8CC");
+        setActionMessage("");
+        if (usedStorage === "drive") refreshJobsQuietly();
+        return { success: true, usedStorage, message };
+      }
+
       const presignStart = r2Now();
       const batchPresign = await apiPost({
         action: "batchPresignR2Upload",
