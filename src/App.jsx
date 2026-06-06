@@ -1471,81 +1471,124 @@ export default function PartnerInstallerPortal() {
       return uploadFile;
     };
 
-    const uploadOne = async (file, index) => {
-      const fileStart = r2Now();
-      const uploadFile = await prepareFile(file, index);
-      try {
-        const result = await uploadPhotoToR2({ job, uploadFile, originalFile: file, selectedCategory });
-        if (result.success !== true || !result.storageKey) throw new Error(result.message || "PHOTO_META \uC800\uC7A5 \uD655\uC778 \uC2E4\uD328");
-        logR2Timing("photo-upload", "file total", fileStart, { index: index + 1, storage: "r2" });
-        return { success: true, result, storage: "r2" };
-      } catch (r2Error) {
-        console.warn("[photo-upload] r2 failed, fallback drive", r2Error);
-        const fallbackResult = await uploadPhotoToDriveFallback({ job, uploadFile, selectedCategory });
-        if (fallbackResult.success !== true) throw new Error(fallbackResult.message || "\uAE30\uC874 \uC800\uC7A5\uC18C \uC0AC\uC9C4\uB4F1\uB85D \uC2E4\uD328");
-        console.info("[photo-upload] fallback drive success");
-        logR2Timing("photo-upload", "file total", fileStart, { index: index + 1, storage: "drive" });
-        return { success: true, result: fallbackResult, storage: "drive" };
-      }
-    };
-
     try {
+      const preparedItems = await Promise.all(fileList.map(async (file, index) => ({ file, index, uploadFile: await prepareFile(file, index) })));
+      const authPayload = buildPhotoAuthPayload();
+      const presignStart = r2Now();
+      const batchPresign = await apiPost({
+        action: "batchPresignR2Upload",
+        ...authPayload,
+        month, rowNumber: job.rowNumber || "", orderNo, siteId,
+        customer: job.customer || "",
+        installDate: job.installDate || job.woodDate || "",
+        photoCategory: selectedCategory,
+        uploadedBy: portalActor(user),
+        uploaderId: portalActor(user),
+        uploaderRole: user?.role || "",
+        source: user?.role || "partner",
+        files: preparedItems.map(({ file, uploadFile, index }) => ({
+          index,
+          originalFileName: file?.name || uploadFile.name,
+          mimeType: uploadFile.type || "application/octet-stream",
+          fileSize: uploadFile.size,
+        })),
+      });
+      logR2Timing("photo-upload", "batchPresignR2Upload", presignStart, { files: preparedItems.length });
+      const presignResults = batchPresign?.results || [];
+
+      const uploadPrepared = async (item) => {
+        const presign = presignResults.find((result) => Number(result.index) === item.index);
+        const fileStart = r2Now();
+        if (!presign?.success || !presign.uploadUrl) {
+          const fallbackResult = await uploadPhotoToDriveFallback({ job, uploadFile: item.uploadFile, selectedCategory });
+          if (fallbackResult.success !== true) throw new Error(fallbackResult.message || "\uAE30\uC874 \uC800\uC7A5\uC18C \uC0AC\uC9C4\uB4F1\uB85D \uC2E4\uD328");
+          logR2Timing("photo-upload", "file total", fileStart, { index: item.index + 1, storage: "drive" });
+          return { success: true, result: fallbackResult, storage: "drive", item };
+        }
+
+        try {
+          const putStart = r2Now();
+          const uploadResponse = await fetch(presign.uploadUrl, {
+            method: "PUT",
+            headers: { "Content-Type": item.uploadFile.type || "application/octet-stream" },
+            body: item.uploadFile,
+          });
+          if (!uploadResponse.ok) throw new Error(`R2 \uD30C\uC77C \uC5C5\uB85C\uB4DC \uC2E4\uD328 (${uploadResponse.status})`);
+          logR2Timing("photo-upload", "r2 put", putStart, { index: item.index + 1, size: item.uploadFile.size });
+          logR2Timing("photo-upload", "file total", fileStart, { index: item.index + 1, storage: "r2" });
+          return { success: true, presign, storage: "r2", item };
+        } catch (r2Error) {
+          console.warn("[photo-upload] r2 put failed, fallback drive", r2Error);
+          const fallbackResult = await uploadPhotoToDriveFallback({ job, uploadFile: item.uploadFile, selectedCategory });
+          if (fallbackResult.success !== true) throw new Error(fallbackResult.message || "\uAE30\uC874 \uC800\uC7A5\uC18C \uC0AC\uC9C4\uB4F1\uB85D \uC2E4\uD328");
+          logR2Timing("photo-upload", "file total", fileStart, { index: item.index + 1, storage: "drive" });
+          return { success: true, result: fallbackResult, storage: "drive", item };
+        }
+      };
+
       const results = [];
-      for (let start = 0; start < fileList.length; start += R2_UPLOAD_CONCURRENCY) {
-        const chunk = fileList.slice(start, start + R2_UPLOAD_CONCURRENCY);
-        setUploadProgress(`\uC5C5\uB85C\uB4DC \uC911 \u00B7 ${Math.min(start + 1, fileList.length)}-${Math.min(start + chunk.length, fileList.length)}/${fileList.length}`);
-        results.push(...await Promise.allSettled(chunk.map((file, chunkIndex) => uploadOne(file, start + chunkIndex))));
+      for (let start = 0; start < preparedItems.length; start += R2_UPLOAD_CONCURRENCY) {
+        const chunk = preparedItems.slice(start, start + R2_UPLOAD_CONCURRENCY);
+        setUploadProgress(`\uC5C5\uB85C\uB4DC \uC911 \u00B7 ${Math.min(start + 1, preparedItems.length)}-${Math.min(start + chunk.length, preparedItems.length)}/${preparedItems.length}`);
+        results.push(...await Promise.allSettled(chunk.map(uploadPrepared)));
       }
 
-      const successes = results.filter((item) => item.status === "fulfilled" && item.value?.success).map((item) => item.value);
+      const fulfilled = results.filter((item) => item.status === "fulfilled" && item.value?.success).map((item) => item.value);
+      const r2Uploads = fulfilled.filter((item) => item.storage === "r2");
+      const driveUploads = fulfilled.filter((item) => item.storage === "drive");
       const failures = results.filter((item) => item.status === "rejected");
-      if (!successes.length) throw new Error(failures[0]?.reason?.message || "\uC0AC\uC9C4\uB4F1\uB85D \uC2E4\uD328");
+      let batchSaveResult = null;
 
-      const usedR2Upload = successes.some((item) => item.storage === "r2");
-      const usedDriveFallback = successes.some((item) => item.storage === "drive");
-      const lastResult = successes[successes.length - 1]?.result || {};
-      let countResult = null;
+      if (r2Uploads.length) {
+        const saveStart = r2Now();
+        batchSaveResult = await apiPost({
+          action: "batchSavePhotoMeta",
+          ...authPayload,
+          metas: r2Uploads.map(({ presign, item }) => ({
+            orderNo, siteId, month, rowNumber: job.rowNumber || "",
+            customer: job.customer || "",
+            installDate: job.installDate || job.woodDate || "",
+            displayFolder: presign.displayFolder, photoCategory: selectedCategory,
+            storageLocation: "r2", storageKey: presign.storageKey, fileName: presign.fileName,
+            originalFileName: item.file?.name || item.uploadFile.name,
+            uploadedBy: portalActor(user), uploaderRole: user?.role || "",
+            uploadedAt: new Date().toISOString(),
+            mimeType: item.uploadFile.type || "application/octet-stream", fileSize: item.uploadFile.size,
+            source: user?.role || "partner",
+          })),
+        });
+        if (batchSaveResult.success !== true) throw new Error(batchSaveResult.message || "PHOTO_META \uC800\uC7A5 \uC2E4\uD328");
+        logR2Timing("photo-upload", "batchSavePhotoMeta", saveStart, { saved: batchSaveResult.saved || 0, failed: batchSaveResult.failed || 0 });
+      }
 
-      if (usedR2Upload) {
-        const r2CountResults = successes
-          .map((item) => item.result)
-          .filter((result) => result?.counts);
-        countResult = r2CountResults.reduce((best, result) => {
-          const bestTotal = Number(best?.total || 0);
-          const nextTotal = Number(result?.total || 0);
-          return nextTotal >= bestTotal ? result : best;
-        }, null);
+      const successCount = Number(batchSaveResult?.saved || 0) + driveUploads.length;
+      const failureCount = failures.length + Number(batchSaveResult?.failed || 0) + Math.max(0, r2Uploads.length - Number(batchSaveResult?.saved || 0));
+      if (!successCount) throw new Error(failures[0]?.reason?.message || "\uC0AC\uC9C4\uB4F1\uB85D \uC2E4\uD328");
 
-        if (countResult?.counts) {
-          logR2Timing("photo-upload", "count included", uploadBatchStart, { total: countResult.total || 0 });
-        } else {
-          const countStart = r2Now();
-          countResult = await apiPost({ action: "getPhotoMetaCounts", ...buildPhotoAuthPayload(), month, rowNumber: job.rowNumber || "", orderNo, siteId });
-          if (countResult.success !== true) throw new Error(countResult.message || "\uC0AC\uC9C4 \uAC1C\uC218 \uAC31\uC2E0 \uC2E4\uD328");
-          logR2Timing("photo-upload", "count fallback", countStart, { total: countResult.total || 0 });
-        }
+      const lastDriveResult = driveUploads[driveUploads.length - 1]?.result || {};
+      const countResult = batchSaveResult?.counts ? batchSaveResult : null;
+      if (countResult?.counts) {
+        logR2Timing("photo-upload", "count included", uploadBatchStart, { total: countResult.total || 0 });
       }
 
       applyJobUpdate(key, (item) => ({
         ...item,
         photo: "\uB4F1\uB85D\uC644\uB8CC",
-        photoUrl: lastResult?.folderUrl || item.photoUrl,
-        photoCounts: countResult?.counts || lastResult?.photoCounts || item.photoCounts || {},
-        photoUrls: lastResult?.photoUrls || item.photoUrls || {},
+        photoUrl: lastDriveResult?.folderUrl || item.photoUrl,
+        photoCounts: countResult?.counts || lastDriveResult?.photoCounts || item.photoCounts || {},
+        photoUrls: lastDriveResult?.photoUrls || item.photoUrls || {},
       }));
 
-      const successCount = successes.length;
-      const failureCount = failures.length;
-      logR2Timing("photo-upload", "batch total", uploadBatchStart, { files: fileList.length, success: successCount, failed: failureCount, storage: usedR2Upload ? "r2" : "drive" });
+      logR2Timing("photo-upload", "batch total", uploadBatchStart, { files: fileList.length, success: successCount, failed: failureCount, storage: r2Uploads.length ? "r2" : "drive" });
       const message = failureCount
         ? `${successCount}\uC7A5 \uB4F1\uB85D \uC644\uB8CC, ${failureCount}\uC7A5 \uC2E4\uD328`
-        : usedR2Upload
+        : r2Uploads.length
           ? `${selectedCategory} ${successCount}\uC7A5 \uC0AC\uC9C4\uB4F1\uB85D\uC774 \uC644\uB8CC\uB418\uC5C8\uC2B5\uB2C8\uB2E4.`
           : "\uAE30\uC874 \uC800\uC7A5\uC18C\uB85C \uC0AC\uC9C4\uB4F1\uB85D\uC774 \uC644\uB8CC\uB418\uC5C8\uC2B5\uB2C8\uB2E4.";
-      setUploadProgress(usedR2Upload ? "\uC0AC\uC9C4\uB4F1\uB85D \uC644\uB8CC" : "\uAE30\uC874 \uC800\uC7A5\uC18C\uB85C \uC0AC\uC9C4\uB4F1\uB85D \uC644\uB8CC");
+      setUploadProgress(r2Uploads.length ? "\uC0AC\uC9C4\uB4F1\uB85D \uC644\uB8CC" : "\uAE30\uC874 \uC800\uC7A5\uC18C\uB85C \uC0AC\uC9C4\uB4F1\uB85D \uC644\uB8CC");
       setActionMessage("");
-      if (usedDriveFallback && !usedR2Upload) refreshJobsQuietly();
-      return { success: true, usedStorage: usedR2Upload ? "r2" : "drive", message };
+      if (driveUploads.length && !r2Uploads.length) refreshJobsQuietly();
+      return { success: true, usedStorage: r2Uploads.length ? "r2" : "drive", message };
     } catch (err) {
       console.warn("[photo-upload] failed", err);
       const message = err?.message || "\uC0AC\uC9C4\uB4F1\uB85D API \uC5F0\uACB0 \uC2E4\uD328";
