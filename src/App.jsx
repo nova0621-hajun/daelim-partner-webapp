@@ -152,8 +152,8 @@ function parseApiJsonResponse(text) {
 
 function normalizePhotoCategory(value) {
   const text = String(value || "").trim();
-  if (text === "???") return "????";
-  return PHOTO_CATEGORY_OPTIONS.includes(text) ? text : "??";
+  if (text === "\uC2DC\uACF5\uD6C4") return "\uC644\uB8CC\uC0AC\uC9C4";
+  return PHOTO_CATEGORY_OPTIONS.includes(text) ? text : "\uAE30\uD0C0";
 }
 
 function readR2WorkerSecret() {
@@ -179,7 +179,7 @@ function writeR2WorkerSecret(value) {
 
 async function callR2WorkerApi(path, payload, workerSecret = readR2WorkerSecret()) {
   if (!workerSecret.trim()) {
-    throw new Error("?? ?? ???? ????. Worker Shared Secret? ??? ???.");
+    throw new Error("\uC0AC\uC9C4\uBCF4\uAE30 \uC124\uC815\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. Worker Shared Secret\uC744 \uC800\uC7A5\uD574 \uC8FC\uC138\uC694.");
   }
 
   const response = await fetch(`${R2_POC_WORKER_URL}${path}`, {
@@ -191,7 +191,7 @@ async function callR2WorkerApi(path, payload, workerSecret = readR2WorkerSecret(
     body: JSON.stringify(payload),
   });
   const data = parseApiJsonResponse(await response.text());
-  if (!data.success) throw new Error(data.message || "R2 ??? ??????.");
+  if (!data.success) throw new Error(data.message || "R2 \uC694\uCCAD\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.");
   return data;
 }
 
@@ -1227,7 +1227,7 @@ export default function PartnerInstallerPortal() {
       body: uploadFile,
     });
     const uploadData = parseApiJsonResponse(await uploadResponse.text());
-    if (!uploadData.success) throw new Error(uploadData.message || "R2 ???? ??????.");
+    if (!uploadData.success) throw new Error(uploadData.message || "R2 \uC5C5\uB85C\uB4DC\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.");
 
     return apiPost({
       action: "savePhotoMeta",
@@ -1297,13 +1297,13 @@ export default function PartnerInstallerPortal() {
         setPhotoViewerPhotos(result.photos || []);
       } else {
         setPhotoViewerPhotos([]);
-        setPhotoViewerError(result.message || "?? ??? ???? ?????.");
+        setPhotoViewerError(result.message || "\uC0AC\uC9C4\uC744 \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.");
       }
       setPhotoViewerInfo({ counts: job.photoCounts || {}, urls: job.photoUrls || {}, source: "job" });
     } catch (error) {
       setPhotoViewerPhotos([]);
       setPhotoViewerInfo({ counts: job.photoCounts || {}, urls: job.photoUrls || {}, source: "job" });
-      setPhotoViewerError(error?.message || "?? ??? ???? ?????.");
+      setPhotoViewerError(error?.message || "\uC0AC\uC9C4\uC744 \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.");
     } finally {
       setPhotoViewerLoading(false);
     }
@@ -1320,7 +1320,7 @@ export default function PartnerInstallerPortal() {
     if (!job || !user) return false;
 
     if (isJobLocked(job)) {
-      setActionMessage("???? ?? ?????. ??? ??? ? ????.");
+      setActionMessage("\uAD00\uB9AC\uC790\uAC00 \uC7A0\uADFC \uD604\uC7A5\uC785\uB2C8\uB2E4. \uC0AC\uC9C4\uC744 \uB4F1\uB85D\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
       return false;
     }
 
@@ -1335,7 +1335,7 @@ export default function PartnerInstallerPortal() {
     }
 
     setUploadingJobId(key);
-    setUploadProgress("");
+    setUploadProgress("\uC5C5\uB85C\uB4DC \uC900\uBE44 \uC911");
     setActionMessage("");
 
     try {
@@ -1345,8 +1345,8 @@ export default function PartnerInstallerPortal() {
 
       for (let i = 0; i < fileList.length; i += 1) {
         const file = fileList[i];
-        const shouldCompress = selectedCategory !== "????";
-        setUploadProgress(`??? ? ${i + 1}/${fileList.length}`);
+        const shouldCompress = selectedCategory !== "\uACC4\uC57D\uB3C4\uBA74";
+        setUploadProgress(`\uC5C5\uB85C\uB4DC \uC911 \u00B7 ${i + 1}/${fileList.length}`);
         const uploadFile = shouldCompress ? await compressImageFile(file) : file;
 
         try {
@@ -1356,7 +1356,7 @@ export default function PartnerInstallerPortal() {
             originalFile: file,
             selectedCategory,
           });
-          if (!lastResult.success) throw new Error(lastResult.message || "????? ??????.");
+          if (!lastResult.success) throw new Error(lastResult.message || "\uC0AC\uC9C4\uB4F1\uB85D\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.");
           usedR2Upload = true;
         } catch (r2Error) {
           usedDriveFallback = true;
@@ -1365,7 +1365,7 @@ export default function PartnerInstallerPortal() {
             uploadFile,
             selectedCategory,
           });
-          if (!lastResult.success) throw new Error(lastResult.message || "????? ??????.");
+          if (!lastResult.success) throw new Error(lastResult.message || "\uC0AC\uC9C4\uB4F1\uB85D\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.");
         }
       }
 
@@ -1380,20 +1380,20 @@ export default function PartnerInstallerPortal() {
 
         return {
           ...item,
-          photo: "????",
+          photo: "\uB4F1\uB85D\uC644\uB8CC",
           photoUrl: lastResult?.folderUrl || item.photoUrl,
           photoCounts: nextCounts,
           photoUrls: lastResult?.photoUrls || item.photoUrls || {},
         };
       });
 
-      setUploadProgress("?? ??");
-      setActionMessage(`${selectedCategory} ${fileList.length}? ?? ??? ???????.`);
+      setUploadProgress("\uC0AC\uC9C4\uB4F1\uB85D \uC644\uB8CC");
+      setActionMessage("");
       if (usedDriveFallback && !usedR2Upload) refreshJobsQuietly();
       return true;
     } catch (err) {
       console.error(err);
-      setActionMessage(err.message || "???? API ?? ??");
+      setActionMessage(err.message || "\uC0AC\uC9C4\uB4F1\uB85D API \uC5F0\uACB0 \uC2E4\uD328");
       return false;
     } finally {
       setUploadingJobId("");
@@ -2679,12 +2679,12 @@ function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false,
         if (!ignore) {
           viewUrlCacheRef.current[key] = url;
           setImageUrl(url || "");
-          if (!url) setImageError("??? ???? ?????.");
+          if (!url) setImageError("\uC0AC\uC9C4\uC744 \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.");
         }
       } catch (err) {
         if (!ignore) {
           setImageUrl("");
-          setImageError(err?.message || "??? ???? ?????.");
+          setImageError(err?.message || "\uC0AC\uC9C4\uC744 \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.");
         }
       } finally {
         if (!ignore) setImageLoading(false);
@@ -2717,7 +2717,7 @@ function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false,
       <div className="max-h-[94vh] w-full max-w-3xl overflow-y-auto rounded-t-[2rem] bg-white p-4 shadow-2xl md:rounded-[2rem] md:p-6">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-xs font-black text-indigo-600">????</p>
+            <p className="text-xs font-black text-indigo-600">{"\uC0AC\uC9C4\uBCF4\uAE30"}</p>
             <h2 className="mt-1 break-words text-xl font-black text-slate-900">{job.customer}</h2>
             <p className="mt-1 text-xs font-bold text-slate-500">{job.month} / ROW {job.rowNumber} / {installPeriod(job)}</p>
           </div>
@@ -2733,13 +2733,13 @@ function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false,
           <button type="button" onClick={onRefresh} disabled={loading} className="rounded-xl border bg-white px-3 py-2 text-xs font-black text-slate-700 disabled:opacity-50">{"\uC0C8\uB85C\uACE0\uCE68"}</button>
         </div>
 
-        {loading ? <div className="mt-4 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-black text-white"><Loader2 className="mr-2 inline h-4 w-4 animate-spin" />?? ???? ?</div> : null}
+        {loading ? <div className="mt-4 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-black text-white"><Loader2 className="mr-2 inline h-4 w-4 animate-spin" />{"\uC0AC\uC9C4 \uBD88\uB7EC\uC624\uB294 \uC911"}</div> : null}
         {error ? <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 p-3 text-sm font-black text-rose-700">{error}</div> : null}
 
         {needsSecret || String(imageError || "").includes("Secret") ? (
           <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-3">
-            <p className="text-sm font-black text-amber-800">?? ?? ???? ?????.</p>
-            <p className="mt-1 text-xs font-bold text-amber-700">?????? Worker Shared Secret? ? ? ???? ????? ?????.</p>
+            <p className="text-sm font-black text-amber-800">{"\uC0AC\uC9C4\uBCF4\uAE30 \uC124\uC815\uC774 \uD544\uC694\uD569\uB2C8\uB2E4."}</p>
+            <p className="mt-1 text-xs font-bold text-amber-700">{"\uBAA8\uBC14\uC77C\uC5D0\uC11C Worker Shared Secret\uC744 \uD55C \uBC88 \uC800\uC7A5\uD558\uBA74 \uC0AC\uC9C4\uBCF4\uAE30\uAC00 \uAC00\uB2A5\uD569\uB2C8\uB2E4."}</p>
             <div className="mt-3 flex gap-2">
               <input type="password" value={secretDraft} onChange={(event) => setSecretDraft(event.target.value)} className="min-w-0 flex-1 rounded-xl border px-3 py-2 text-sm font-bold" placeholder="Worker Shared Secret" />
               <button type="button" onClick={saveSecret} className="rounded-xl bg-slate-900 px-3 py-2 text-xs font-black text-white">{"\uC800\uC7A5"}</button>
@@ -2750,8 +2750,8 @@ function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false,
         {visiblePhotos.length ? (
           <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-950 p-3 text-white">
             <div className="relative flex min-h-[280px] items-center justify-center overflow-hidden rounded-xl bg-black md:min-h-[420px]" onTouchStart={(e) => { touchStartXRef.current = e.touches?.[0]?.clientX ?? null; }} onTouchEnd={(e) => { if (touchStartXRef.current === null) return; const endX = e.changedTouches?.[0]?.clientX ?? touchStartXRef.current; const diff = touchStartXRef.current - endX; touchStartXRef.current = null; if (Math.abs(diff) >= 40) move(diff > 0 ? 1 : -1); }}>
-              {imageLoading ? <div className="flex items-center gap-2 text-sm font-bold text-white"><Loader2 className="h-4 w-4 animate-spin" />?? ???? ?</div> : null}
-              {!imageLoading && imageUrl ? <img src={imageUrl} alt="?? ??" className="max-h-[70vh] w-full object-contain" /> : null}
+              {imageLoading ? <div className="flex items-center gap-2 text-sm font-bold text-white"><Loader2 className="h-4 w-4 animate-spin" />{"\uC0AC\uC9C4 \uBD88\uB7EC\uC624\uB294 \uC911"}</div> : null}
+              {!imageLoading && imageUrl ? <img src={imageUrl} alt="\uC0AC\uC9C4 \uC0C1\uC138" className="max-h-[70vh] w-full object-contain" /> : null}
               {!imageLoading && imageError ? <div className="mx-4 rounded-xl bg-rose-500/15 px-4 py-3 text-center text-sm font-bold text-rose-100">{imageError}</div> : null}
               {visiblePhotos.length > 1 ? (
                 <>
@@ -2769,12 +2769,12 @@ function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false,
           </div>
         ) : null}
 
-        {!loading && !hasPhotos ? <div className="mt-4 rounded-2xl border border-dashed p-8 text-center text-sm font-bold text-slate-400">??? ??? ????.</div> : null}
+        {!loading && !hasPhotos ? <div className="mt-4 rounded-2xl border border-dashed p-8 text-center text-sm font-bold text-slate-400">{"\uB4F1\uB85D\uB41C \uC0AC\uC9C4\uC774 \uC5C6\uC2B5\uB2C8\uB2E4."}</div> : null}
 
         {!visiblePhotos.length && hasFallback ? (
           <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-            <p className="text-sm font-black text-slate-900">?? ?? {fallbackCount}?</p>
-            <a href={fallbackUrl} target="_blank" rel="noreferrer" className="mt-3 flex w-full items-center justify-center rounded-2xl bg-slate-900 px-4 py-3 text-sm font-black text-white">?? ?? ??</a>
+            <p className="text-sm font-black text-slate-900">{"\uAE30\uC874 \uC0AC\uC9C4"} {fallbackCount}{"\uAC1C"}</p>
+            <a href={fallbackUrl} target="_blank" rel="noreferrer" className="mt-3 flex w-full items-center justify-center rounded-2xl bg-slate-900 px-4 py-3 text-sm font-black text-white">{"\uAE30\uC874 \uC0AC\uC9C4 \uBCF4\uAE30"}</a>
           </div>
         ) : null}
       </div>
@@ -2786,6 +2786,7 @@ function UploadModal({ job, onClose, onSubmit, uploading = false, progress = "",
   const [files, setFiles] = useState([]);
   const [localMessage, setLocalMessage] = useState("");
   const [uploadDone, setUploadDone] = useState(false);
+  const [uploadDoneMessage, setUploadDoneMessage] = useState("");
 
   const submit = async () => {
     const check = validateUploadFiles(files, category);
@@ -2798,9 +2799,15 @@ function UploadModal({ job, onClose, onSubmit, uploading = false, progress = "",
     setLocalMessage("");
     try {
       const ok = await onSubmit(job, category, files);
-      if (ok) setUploadDone(true);
+      if (ok) {
+        setLocalMessage("");
+        setUploadDone(true);
+        setUploadDoneMessage(`${category} ${files.length}\uC7A5 \uC0AC\uC9C4\uB4F1\uB85D\uC774 \uC644\uB8CC\uB418\uC5C8\uC2B5\uB2C8\uB2E4.`);
+      }
     } catch (error) {
       console.error(error);
+      setUploadDone(false);
+      setUploadDoneMessage("");
       setLocalMessage(error?.message || "\uC0AC\uC9C4\uB4F1\uB85D \uC911 \uC624\uB958\uAC00 \uBC1C\uC0DD\uD588\uC2B5\uB2C8\uB2E4.");
     }
   };
@@ -2820,25 +2827,25 @@ function UploadModal({ job, onClose, onSubmit, uploading = false, progress = "",
         <div className="mt-5 space-y-4">
           <div>
             <FieldLabel>사진 구분</FieldLabel>
-            <select value={category} onChange={(e) => { setCategory(e.target.value); setFiles([]); setLocalMessage(""); setUploadDone(false); }} disabled={uploading || uploadDone} className="w-full rounded-2xl border px-4 py-3 font-bold disabled:opacity-50">
+            <select value={category} onChange={(e) => { setCategory(e.target.value); setFiles([]); setLocalMessage(""); setUploadDone(false); setUploadDoneMessage(""); }} disabled={uploading || uploadDone} className="w-full rounded-2xl border px-4 py-3 font-bold disabled:opacity-50">
               {PHOTO_CATEGORY_OPTIONS.map((option) => <option key={option}>{option}</option>)}
             </select>
           </div>
           <div>
             <FieldLabel>{category === "계약도면" ? "PDF 또는 이미지 선택" : "갤러리에서 사진 선택"}</FieldLabel>
-            <input type="file" accept={getUploadAccept(category)} multiple disabled={uploading || uploadDone} onChange={(e) => { setFiles(Array.from(e.target.files || [])); setLocalMessage(""); setUploadDone(false); }} className="w-full rounded-2xl border px-4 py-3 text-sm disabled:opacity-50" />
+            <input type="file" accept={getUploadAccept(category)} multiple disabled={uploading || uploadDone} onChange={(e) => { setFiles(Array.from(e.target.files || [])); setLocalMessage(""); setUploadDone(false); setUploadDoneMessage(""); }} className="w-full rounded-2xl border px-4 py-3 text-sm disabled:opacity-50" />
             {files.length ? <p className="mt-2 text-xs font-bold text-emerald-700">선택됨: {files.length}개</p> : null}
           </div>
         </div>
 
-        {progress ? <div className="mt-4 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-black text-white"><Loader2 className="mr-2 inline h-4 w-4 animate-spin" />{progress}</div> : null}
-        {uploadDone ? <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-black text-emerald-700">{"\uC0AC\uC9C4\uB4F1\uB85D \uC644\uB8CC"}</div> : null}
-        {localMessage || message ? <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm font-black text-rose-700">{localMessage || message}</div> : null}
+        {!uploadDone && progress ? <div className="mt-4 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-black text-white"><Loader2 className="mr-2 inline h-4 w-4 animate-spin" />{progress}</div> : null}
+        {uploadDone ? <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-black text-emerald-700"><p>{"\uC0AC\uC9C4\uB4F1\uB85D \uC644\uB8CC"}</p>{uploadDoneMessage ? <p className="mt-1 text-xs font-bold text-emerald-600">{uploadDoneMessage}</p> : null}</div> : null}
+        {!uploadDone && (localMessage || message) ? <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm font-black text-rose-700"><p>{"\uC0AC\uC9C4\uB4F1\uB85D \uC2E4\uD328"}</p><p className="mt-1 text-xs font-bold text-rose-600">{localMessage || message}</p></div> : null}
 
         {uploadDone ? (
           <div className="mt-5 grid grid-cols-3 gap-2">
             <button onClick={onPhotoView} className="rounded-2xl bg-emerald-600 px-3 py-3 text-xs font-black text-white">{"\uC0AC\uC9C4\uBCF4\uAE30"}</button>
-            <button onClick={() => { setFiles([]); setLocalMessage(""); setUploadDone(false); }} className="rounded-2xl border px-3 py-3 text-xs font-black">{"\uACC4\uC18D \uB4F1\uB85D"}</button>
+            <button onClick={() => { setFiles([]); setLocalMessage(""); setUploadDone(false); setUploadDoneMessage(""); }} className="rounded-2xl border px-3 py-3 text-xs font-black">{"\uACC4\uC18D \uB4F1\uB85D"}</button>
             <button onClick={onClose} className="rounded-2xl border px-3 py-3 text-xs font-black">{"\uB2EB\uAE30"}</button>
           </div>
         ) : (
