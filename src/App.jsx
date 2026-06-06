@@ -19,8 +19,6 @@ import {
 
 const WEBAPP_URL =
   "https://script.google.com/macros/s/AKfycbzunWIU75WOPAnZLS9MGqgLLJ9-P4P1f59gNpggLcWcEGs_P0NArHOLdKNwwPQGekMewg/exec";
-const R2_POC_WORKER_URL =
-  "https://daelim-r2-photo-worker.nova0621.workers.dev";
 const SESSION_STORAGE_KEY = "daelimPartnerPortalUser";
 const SESSION_TTL = 1000 * 60 * 60 * 8;
 
@@ -158,65 +156,32 @@ function normalizePhotoCategory(value) {
   return PHOTO_CATEGORY_OPTIONS.includes(text) ? text : "\uAE30\uD0C0";
 }
 
-let r2WorkerSecretMemory = "";
-
 function readR2WorkerSecret() {
-  try {
-    return String(
-      r2WorkerSecretMemory ||
-      localStorage.getItem(R2_POC_SECRET_STORAGE_KEY) ||
-      sessionStorage.getItem(R2_POC_SECRET_STORAGE_KEY) ||
-      ""
-    ).trim();
-  } catch (error) {
-    return String(r2WorkerSecretMemory || "").trim();
-  }
+  return "";
 }
 
-function writeR2WorkerSecret(value) {
-  const clean = String(value || "").trim();
-  r2WorkerSecretMemory = clean;
-  try {
-    if (!clean) {
-      localStorage.removeItem(R2_POC_SECRET_STORAGE_KEY);
-      sessionStorage.removeItem(R2_POC_SECRET_STORAGE_KEY);
-      return;
-    }
-    localStorage.setItem(R2_POC_SECRET_STORAGE_KEY, clean);
-    sessionStorage.setItem(R2_POC_SECRET_STORAGE_KEY, clean);
-  } catch (error) {}
-}
+function writeR2WorkerSecret() {}
 
-async function callR2WorkerApi(path, payload, workerSecret = readR2WorkerSecret()) {
-  const cleanSecret = String(workerSecret || readR2WorkerSecret() || "").trim();
-  if (!cleanSecret) {
-    throw new Error("Worker Shared Secret\uC774 \uC5C6\uC5B4 R2 \uC5C5\uB85C\uB4DC\uB97C \uC2DC\uC791\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
+async function callR2WorkerApi(path, payload = {}) {
+  const action = path === "/presignUpload"
+    ? "presignR2Upload"
+    : path === "/presignView"
+      ? "presignR2View"
+      : "";
+
+  if (!action) {
+    throw new Error("\uC9C0\uC6D0\uD558\uC9C0 \uC54A\uB294 R2 \uC694\uCCAD\uC785\uB2C8\uB2E4.");
   }
 
-  const workerUrl = String(R2_POC_WORKER_URL || "").trim();
-  if (!workerUrl) {
-    throw new Error("R2 Worker URL\uC774 \uC124\uC815\uB418\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.");
+  const data = await apiPost({
+    action,
+    ...payload,
+  });
+
+  if (data.success !== true) {
+    throw new Error(data.message || "R2 URL \uBC1C\uAE09\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.");
   }
 
-  let response;
-  try {
-    response = await fetch(`${workerUrl}${path}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Daelim-Token": cleanSecret,
-      },
-      body: JSON.stringify(payload),
-    });
-  } catch (error) {
-    throw new Error(`Worker \uC694\uCCAD \uC2E4\uD328: ${error?.message || error}`);
-  }
-
-  const text = await response.text();
-  const data = parseApiJsonResponse(text);
-  if (!response.ok || data.success !== true) {
-    throw new Error(data.message || `Worker \uC624\uB958 (${response.status})`);
-  }
   return data;
 }
 function compressImageFile(file, maxWidth = 1024, quality = 0.75) {
@@ -1240,11 +1205,6 @@ export default function PartnerInstallerPortal() {
 
   const uploadPhotoToR2 = async ({ job, uploadFile, originalFile, selectedCategory }) => {
     console.info("[partner-photo-upload] r2 upload flow entered");
-    const workerSecret = readR2WorkerSecret();
-    if (!workerSecret) {
-      throw new Error("Worker Shared Secret\uC774 \uC5C6\uC5B4 R2 \uC5C5\uB85C\uB4DC\uB97C \uC2DC\uC791\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
-    }
-
     const month = job.month || job.sheet || "";
     const siteId = job.id || job.jobId || `${month}-ROW${job.rowNumber}`;
     const orderNo = job.id || job.jobId || "";
@@ -1252,6 +1212,9 @@ export default function PartnerInstallerPortal() {
 
     console.info("[partner-photo-upload] presignUpload start");
     const presign = await callR2WorkerApi("/presignUpload", {
+      ...buildPhotoAuthPayload(),
+      month,
+      rowNumber: job.rowNumber || "",
       orderNo,
       siteId,
       customer: job.customer || "",
@@ -1262,7 +1225,7 @@ export default function PartnerInstallerPortal() {
       uploaderRole: user?.role || "",
       mimeType: uploadFile.type || "application/octet-stream",
       fileSize: uploadFile.size,
-    }, workerSecret);
+    });
 
     if (presign.success !== true || !presign.uploadUrl || !presign.storageKey || !presign.fileName) {
       throw new Error("R2 \uC5C5\uB85C\uB4DC URL \uBC1C\uAE09 \uC2E4\uD328");
@@ -1380,9 +1343,17 @@ export default function PartnerInstallerPortal() {
   };
 
   const viewR2Photo = async (photo) => {
+    const job = photoViewerJob || {};
+    const month = job.month || job.sheet || photo.month || "";
+    const rowNumber = job.rowNumber || photo.rowNumber || "";
     const data = await callR2WorkerApi("/presignView", {
+      ...buildPhotoAuthPayload(),
       storageKey: photo.storageKey,
       photoId: photo.photoId,
+      month,
+      rowNumber,
+      orderNo: job.id || job.jobId || photo.orderNo || "",
+      siteId: job.id || job.jobId || photo.siteId || (month && rowNumber ? `${month}-ROW${rowNumber}` : ""),
     });
     return data.viewUrl;
   };
@@ -1406,13 +1377,6 @@ export default function PartnerInstallerPortal() {
     if (!check.ok) {
       setActionMessage(check.message);
       return { success: false, message: check.message };
-    }
-
-    const workerSecret = readR2WorkerSecret();
-    if (!workerSecret) {
-      const message = "Worker Shared Secret\uC774 \uC5C6\uC5B4 R2 \uC5C5\uB85C\uB4DC\uB97C \uC2DC\uC791\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.";
-      setActionMessage(message);
-      return { success: false, message };
     }
 
     setUploadingJobId(key);
@@ -1448,8 +1412,6 @@ export default function PartnerInstallerPortal() {
           usedR2Upload = true;
         } catch (r2Error) {
           console.warn("[partner-photo-upload] failed", r2Error);
-          if (!readR2WorkerSecret()) throw r2Error;
-
           usedDriveFallback = true;
           lastResult = await uploadPhotoToDriveFallback({
             job,
@@ -2759,9 +2721,7 @@ function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false,
   const [imageUrl, setImageUrl] = useState("");
   const [imageLoading, setImageLoading] = useState(false);
   const [imageError, setImageError] = useState("");
-  const [secretDraft, setSecretDraft] = useState(() => readR2WorkerSecret());
   const [secretVersion, setSecretVersion] = useState(0);
-  const [secretMessage, setSecretMessage] = useState("");
   const touchStartXRef = useRef(null);
   const viewUrlCacheRef = useRef({});
 
@@ -2787,7 +2747,7 @@ function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false,
   const fallbackUrl = activeCategory === ALL_TAB ? job?.photoUrl : urls?.[activeCategory] || job?.photoUrl || "";
   const hasFallback = !!fallbackUrl && fallbackCount > 0;
   const hasPhotos = visiblePhotos.length > 0 || hasFallback;
-  const needsSecret = visiblePhotos.length > 0 && !readR2WorkerSecret().trim();
+  const needsSecret = false;
 
   useEffect(() => {
     setActiveCategory(initialCategory || ALL_TAB);
@@ -2844,14 +2804,6 @@ function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false,
     });
   };
 
-  const saveSecret = () => {
-    const clean = String(secretDraft || "").trim();
-    writeR2WorkerSecret(clean);
-    setSecretDraft(clean || readR2WorkerSecret());
-    setSecretMessage(clean ? "\uC800\uC7A5\uB418\uC5C8\uC2B5\uB2C8\uB2E4." : "");
-    viewUrlCacheRef.current = {};
-    setSecretVersion((value) => value + 1);
-  };
 
   if (!job) return null;
 
@@ -2878,18 +2830,6 @@ function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false,
 
         {loading ? <div className="mt-4 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-black text-white"><Loader2 className="mr-2 inline h-4 w-4 animate-spin" />{"\uC0AC\uC9C4 \uBD88\uB7EC\uC624\uB294 \uC911"}</div> : null}
         {error ? <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 p-3 text-sm font-black text-rose-700">{error}</div> : null}
-
-        {needsSecret || String(imageError || "").includes("Secret") ? (
-          <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-3">
-            <p className="text-sm font-black text-amber-800">{"\uC0AC\uC9C4\uBCF4\uAE30 \uC124\uC815\uC774 \uD544\uC694\uD569\uB2C8\uB2E4."}</p>
-            <p className="mt-1 text-xs font-bold text-amber-700">{"\uBAA8\uBC14\uC77C\uC5D0\uC11C Worker Shared Secret\uC744 \uD55C \uBC88 \uC800\uC7A5\uD558\uBA74 \uC0AC\uC9C4\uBCF4\uAE30\uAC00 \uAC00\uB2A5\uD569\uB2C8\uB2E4."}</p>
-            <div className="mt-3 flex gap-2">
-              <input type="password" value={secretDraft} onChange={(event) => setSecretDraft(event.target.value)} className="min-w-0 flex-1 rounded-xl border px-3 py-2 text-sm font-bold" placeholder="Worker Shared Secret" />
-              <button type="button" onClick={saveSecret} className="rounded-xl bg-slate-900 px-3 py-2 text-xs font-black text-white">{"\uC800\uC7A5"}</button>
-            </div>
-            {secretMessage ? <p className="mt-2 text-xs font-black text-emerald-700">{secretMessage}</p> : null}
-          </div>
-        ) : null}
 
         {visiblePhotos.length ? (
           <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-950 p-3 text-white">
