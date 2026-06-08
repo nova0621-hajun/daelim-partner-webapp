@@ -2958,6 +2958,7 @@ function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false,
   const [imageError, setImageError] = useState("");
   const [secretVersion, setSecretVersion] = useState(0);
   const [zoomOpen, setZoomOpen] = useState(false);
+  const [deleteActionState, setDeleteActionState] = useState({ type: "", message: "", error: "" });
   const imageDisplayStartRef = useRef(null);
   const touchStartXRef = useRef(null);
   const viewUrlCacheRef = useRef({});
@@ -2990,14 +2991,26 @@ function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false,
   const isUploader = !!activePhoto && (uploadedBy === userName || uploadedBy === userLoginId);
   const isAssignedEngineer = user?.role === "engineer" && installerName && installerName === userName;
   const canRequestDelete = !!activePhoto && !activePhotoDeleted && !activePhotoDeleteRequested && (isUploader || isAssignedEngineer);
+  const deleteActionBusy = !!deleteActionState.type;
+  const hasDeleteActionArea = !!activePhoto && (
+    activePhotoDeleteRequested ||
+    !!deleteActionState.message ||
+    !!deleteActionState.error ||
+    canRequestDelete
+  );
   const handleDeleteRequest = async () => {
-    if (!activePhoto || !onRequestDelete) return;
+    if (!activePhoto || !onRequestDelete || deleteActionBusy) return;
     const reason = window.prompt("삭제요청 사유를 입력해 주세요.", "") || "";
     try {
+      setDeleteActionState({ type: "request", message: "삭제요청 중입니다...", error: "" });
       await onRequestDelete(activePhoto, reason);
-      window.alert("삭제요청이 접수되었습니다. 관리자가 확인 후 처리합니다.");
+      const message = "삭제요청이 접수되었습니다. 관리자가 확인 후 처리합니다.";
+      setDeleteActionState({ type: "", message: message, error: "" });
+      window.alert(message);
     } catch (err) {
-      window.alert(err?.message || "삭제요청에 실패했습니다.");
+      const message = err?.message || "삭제요청에 실패했습니다.";
+      setDeleteActionState({ type: "", message: "", error: message });
+      window.alert(message);
     }
   };
   const fallbackCount = visiblePhotos.length ? 0 : (activeCategory === ALL_TAB ? PHOTO_CATEGORY_OPTIONS.reduce((sum, key) => sum + numberValue(counts?.[key]), 0) : numberValue(counts?.[activeCategory]));
@@ -3014,6 +3027,7 @@ function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false,
     setActiveIndex(0);
     setImageUrl("");
     setImageError("");
+    setDeleteActionState({ type: "", message: "", error: "" });
   }, [activeCategory, visiblePhotos.length, job?.rowNumber]);
 
   const getPhotoKey = (photo) => photo?.photoId || photo?.storageKey || "";
@@ -3264,15 +3278,15 @@ function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false,
                 {visiblePhotos.map((photo, index) => <button key={photo.photoId || photo.storageKey} type="button" onClick={() => setActiveIndex(index)} className={`shrink-0 rounded-xl border px-3 py-2 text-xs font-black ${index === activeIndex ? "border-white bg-white text-slate-900" : "border-white/20 bg-white/10 text-white"}`}>{index + 1}</button>)}
               </div>
             </div>
-            {activePhoto ? (
+            {hasDeleteActionArea ? (
               <div className="mt-3 rounded-2xl border border-white/10 bg-white/10 p-3">
                 <div className="flex flex-wrap items-center gap-2 text-xs font-bold text-slate-200">
-                  <span>{activePhoto.originalFileName || activePhoto.fileName || "사진"}</span>
-                  {activePhoto.uploadedBy ? <span className="rounded-full bg-white/10 px-2 py-1">업로더 {activePhoto.uploadedBy}</span> : null}
                   {activePhotoDeleteRequested ? <span className="rounded-full bg-amber-300 px-2 py-1 font-black text-amber-950">삭제요청중</span> : null}
                 </div>
+                {deleteActionState.message ? <div className="mt-3 rounded-xl bg-sky-400/15 px-3 py-2 text-xs font-black text-sky-100">{deleteActionState.message}</div> : null}
+                {deleteActionState.error ? <div className="mt-3 rounded-xl bg-rose-400/15 px-3 py-2 text-xs font-black text-rose-100">{deleteActionState.error}</div> : null}
                 {canRequestDelete ? (
-                  <button type="button" onClick={handleDeleteRequest} className="mt-3 rounded-xl bg-amber-300 px-3 py-2 text-xs font-black text-amber-950">삭제요청</button>
+                  <button type="button" disabled={deleteActionBusy} onClick={handleDeleteRequest} className="mt-3 rounded-xl bg-amber-300 px-3 py-2 text-xs font-black text-amber-950 disabled:opacity-60">{deleteActionState.type === "request" ? "삭제요청 중..." : "삭제요청"}</button>
                 ) : null}
               </div>
             ) : null}
