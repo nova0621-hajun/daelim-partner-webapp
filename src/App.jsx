@@ -20,6 +20,8 @@ import {
 const WEBAPP_URL =
   "https://script.google.com/macros/s/AKfycbzunWIU75WOPAnZLS9MGqgLLJ9-P4P1f59gNpggLcWcEGs_P0NArHOLdKNwwPQGekMewg/exec";
 const R2_PUBLIC_BASE_URL = "https://daelim-r2-photo-worker.nova0621.workers.dev";
+const buildR2FastViewUrl = (storageKey) =>
+  storageKey ? `${R2_PUBLIC_BASE_URL}/fast-view?key=${encodeURIComponent(storageKey)}` : "";
 const SESSION_STORAGE_KEY = "daelimPartnerPortalUser";
 const SESSION_TTL = 1000 * 60 * 60 * 8;
 
@@ -1335,9 +1337,9 @@ export default function PartnerInstallerPortal() {
       photoCategory: category,
       storageLocation: "r2",
       storageKey: presign.storageKey,
-      publicViewKey: presign.publicViewKey || "",
-      publicViewUrl: presign.publicViewUrl || "",
-      viewMode: presign.viewMode || (presign.publicViewUrl || presign.publicViewKey ? "fast" : ""),
+      publicViewKey: "",
+      publicViewUrl: buildR2FastViewUrl(presign.storageKey),
+      viewMode: "fast",
       fileName: presign.fileName,
       originalFileName: originalFile?.name || uploadFile.name,
       uploadedBy: portalActor(user),
@@ -1642,9 +1644,9 @@ export default function PartnerInstallerPortal() {
             installDate: job.installDate || job.woodDate || "",
             displayFolder: presign.displayFolder, photoCategory: selectedCategory,
             storageLocation: "r2", storageKey: presign.storageKey, fileName: presign.fileName,
-            publicViewKey: presign.publicViewKey || "",
-            publicViewUrl: presign.publicViewUrl || "",
-            viewMode: presign.viewMode || (presign.publicViewUrl || presign.publicViewKey ? "fast" : ""),
+            publicViewKey: "",
+            publicViewUrl: buildR2FastViewUrl(presign.storageKey),
+            viewMode: "fast",
             originalFileName: item.file?.name || item.uploadFile.name,
             uploadedBy: portalActor(user), uploaderRole: user?.role || "",
             uploadedAt: new Date().toISOString(),
