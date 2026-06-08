@@ -19,6 +19,7 @@ import {
 
 const WEBAPP_URL =
   "https://script.google.com/macros/s/AKfycbzunWIU75WOPAnZLS9MGqgLLJ9-P4P1f59gNpggLcWcEGs_P0NArHOLdKNwwPQGekMewg/exec";
+const R2_PUBLIC_BASE_URL = "https://daelim-r2-photo-worker.nova0621.workers.dev";
 const SESSION_STORAGE_KEY = "daelimPartnerPortalUser";
 const SESSION_TTL = 1000 * 60 * 60 * 8;
 
@@ -1334,6 +1335,9 @@ export default function PartnerInstallerPortal() {
       photoCategory: category,
       storageLocation: "r2",
       storageKey: presign.storageKey,
+      publicViewKey: presign.publicViewKey || "",
+      publicViewUrl: presign.publicViewUrl || "",
+      viewMode: presign.viewMode || (presign.publicViewKey ? "fast" : ""),
       fileName: presign.fileName,
       originalFileName: originalFile?.name || uploadFile.name,
       uploadedBy: portalActor(user),
@@ -1638,6 +1642,9 @@ export default function PartnerInstallerPortal() {
             installDate: job.installDate || job.woodDate || "",
             displayFolder: presign.displayFolder, photoCategory: selectedCategory,
             storageLocation: "r2", storageKey: presign.storageKey, fileName: presign.fileName,
+            publicViewKey: presign.publicViewKey || "",
+            publicViewUrl: presign.publicViewUrl || "",
+            viewMode: presign.viewMode || (presign.publicViewKey ? "fast" : ""),
             originalFileName: item.file?.name || item.uploadFile.name,
             uploadedBy: portalActor(user), uploaderRole: user?.role || "",
             uploadedAt: new Date().toISOString(),
@@ -2969,10 +2976,27 @@ function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false,
   }, [activeCategory, visiblePhotos.length, job?.rowNumber]);
 
   const getPhotoKey = (photo) => photo?.photoId || photo?.storageKey || "";
+  const getFastPublicViewUrl = (photo) => {
+    const publicViewUrl = String(photo?.publicViewUrl || "").trim();
+    if (publicViewUrl) return publicViewUrl;
+
+    const publicViewKey = String(photo?.publicViewKey || "").trim().replace(/^\/+/, "");
+    if (!publicViewKey) return "";
+    return `${R2_PUBLIC_BASE_URL}/${publicViewKey}`;
+  };
 
   const getCachedViewUrl = async (photo, options = {}) => {
     const key = getPhotoKey(photo);
     if (!key) return "";
+
+    const fastUrl = getFastPublicViewUrl(photo);
+    if (fastUrl) {
+      if (!viewUrlCacheRef.current[key]) {
+        console.info("[photo-viewer] fast public url used", { photoKey: key });
+        viewUrlCacheRef.current[key] = fastUrl;
+      }
+      return viewUrlCacheRef.current[key];
+    }
 
     if (viewUrlCacheRef.current[key]) {
       console.info("[photo-viewer] cache hit", { photoKey: key });
@@ -3014,6 +3038,13 @@ function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false,
 
     uniquePhotos.forEach((photo) => {
       const key = getPhotoKey(photo);
+      const fastUrl = getFastPublicViewUrl(photo);
+      if (fastUrl) {
+        console.info("[photo-viewer] fast public url used", { photoKey: key });
+        viewUrlCacheRef.current[key] = fastUrl;
+        resultMap[key] = fastUrl;
+        return;
+      }
       if (viewUrlCacheRef.current[key]) {
         console.info("[photo-viewer] cache hit", { photoKey: key });
         resultMap[key] = viewUrlCacheRef.current[key];
