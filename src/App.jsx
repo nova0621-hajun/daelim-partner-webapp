@@ -1485,6 +1485,26 @@ export default function PartnerInstallerPortal() {
     });
     return resultMap;
   };
+  const requestDeletePortalR2Photo = async (photo, reason = "") => {
+    const job = photoViewerJob || {};
+    const month = job.month || job.sheet || photo.month || "";
+    const rowNumber = job.rowNumber || photo.rowNumber || "";
+    const result = await apiPost({
+      action: "requestDeleteR2Photo",
+      ...buildPhotoAuthPayload(),
+      photoId: photo.photoId || "",
+      storageKey: photo.storageKey || "",
+      month,
+      rowNumber,
+      orderNo: job.id || job.jobId || photo.orderNo || "",
+      siteId: job.id || job.jobId || photo.siteId || (month && rowNumber ? `${month}-ROW${rowNumber}` : ""),
+      reason,
+    });
+
+    if (result.success !== true) throw new Error(result.message || "삭제요청에 실패했습니다.");
+    await loadPhotoGallery(job, photoViewerInitialCategory);
+    return result;
+  };
   const uploadPhotoFiles = async (job, category, files) => {
     if (!job || !user) return { success: false, message: "\uC798\uBABB\uB41C \uD604\uC7A5\uC785\uB2C8\uB2E4." };
 
@@ -2017,7 +2037,7 @@ export default function PartnerInstallerPortal() {
       ) : null}
 
       {uploadJob ? <UploadModal job={uploadJob} onClose={() => setUploadJob(null)} onSubmit={uploadPhotoFiles} uploading={uploadingJobId === jobKey(uploadJob)} progress={uploadProgress} message={actionMessage} onPhotoView={() => loadPhotoGallery(uploadJob, "\uC804\uCCB4")} /> : null}
-      {photoViewerJob ? <PhotoViewerModal job={photoViewerJob} photos={photoViewerPhotos} photoInfo={photoViewerInfo} loading={photoViewerLoading} error={photoViewerError} initialCategory={photoViewerInitialCategory} onClose={() => setPhotoViewerJob(null)} onRefresh={() => loadPhotoGallery(photoViewerJob, photoViewerInitialCategory)} onViewR2={viewR2Photo} onViewR2Batch={viewR2Photos} /> : null}
+      {photoViewerJob ? <PhotoViewerModal job={photoViewerJob} photos={photoViewerPhotos} photoInfo={photoViewerInfo} loading={photoViewerLoading} error={photoViewerError} initialCategory={photoViewerInitialCategory} onClose={() => setPhotoViewerJob(null)} onRefresh={() => loadPhotoGallery(photoViewerJob, photoViewerInitialCategory)} onViewR2={viewR2Photo} onViewR2Batch={viewR2Photos} user={user} onRequestDelete={requestDeletePortalR2Photo} /> : null}
       {historyJob ? <HistoryModal job={historyJob} onClose={() => setHistoryJob(null)} onSubmit={addHistory} saving={historySavingJobId === jobKey(historyJob)} message={actionMessage} /> : null}
     </div>
   );
@@ -2925,7 +2945,7 @@ function PhoneLink({ value }) {
   return <a href={`tel:${onlyDigits(phone)}`} className="font-black text-blue-700 underline decoration-blue-300 underline-offset-2"><Phone className="mr-1 inline h-3.5 w-3.5" />{phone}</a>;
 }
 
-function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false, error = "", initialCategory = "\uC804\uCCB4", onClose, onRefresh, onViewR2, onViewR2Batch }) {
+function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false, error = "", initialCategory = "\uC804\uCCB4", onClose, onRefresh, onViewR2, onViewR2Batch, user = null, onRequestDelete }) {
   const ALL_TAB = "\uC804\uCCB4";
   const counts = photoInfo?.counts || job?.photoCounts || {};
   const urls = photoInfo?.urls || job?.photoUrls || {};
@@ -2961,6 +2981,25 @@ function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false,
   const activeCountLabel = `${activeCategory === ALL_TAB ? "\uC804\uCCB4" : activeCategory} ${categoryCount(activeCategory)}\uC7A5`;
 
   const activePhoto = visiblePhotos[activeIndex] || null;
+  const activePhotoDeleteRequested = String(activePhoto?.deleteRequested || "").toUpperCase() === "Y";
+  const activePhotoDeleted = String(activePhoto?.deleted || "").toUpperCase() === "Y";
+  const userName = String(user?.name || "").trim();
+  const userLoginId = String(user?.loginId || user?.id || "").trim();
+  const uploadedBy = String(activePhoto?.uploadedBy || "").trim();
+  const installerName = String(job?.installer || job?.engineer || job?.engineerName || "").trim();
+  const isUploader = !!activePhoto && (uploadedBy === userName || uploadedBy === userLoginId);
+  const isAssignedEngineer = user?.role === "engineer" && installerName && installerName === userName;
+  const canRequestDelete = !!activePhoto && !activePhotoDeleted && !activePhotoDeleteRequested && (isUploader || isAssignedEngineer);
+  const handleDeleteRequest = async () => {
+    if (!activePhoto || !onRequestDelete) return;
+    const reason = window.prompt("삭제요청 사유를 입력해 주세요.", "") || "";
+    try {
+      await onRequestDelete(activePhoto, reason);
+      window.alert("삭제요청이 접수되었습니다. 관리자가 확인 후 처리합니다.");
+    } catch (err) {
+      window.alert(err?.message || "삭제요청에 실패했습니다.");
+    }
+  };
   const fallbackCount = visiblePhotos.length ? 0 : (activeCategory === ALL_TAB ? PHOTO_CATEGORY_OPTIONS.reduce((sum, key) => sum + numberValue(counts?.[key]), 0) : numberValue(counts?.[activeCategory]));
   const fallbackUrl = activeCategory === ALL_TAB ? job?.photoUrl : urls?.[activeCategory] || job?.photoUrl || "";
   const hasFallback = !!fallbackUrl && fallbackCount > 0;
@@ -3225,6 +3264,18 @@ function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false,
                 {visiblePhotos.map((photo, index) => <button key={photo.photoId || photo.storageKey} type="button" onClick={() => setActiveIndex(index)} className={`shrink-0 rounded-xl border px-3 py-2 text-xs font-black ${index === activeIndex ? "border-white bg-white text-slate-900" : "border-white/20 bg-white/10 text-white"}`}>{index + 1}</button>)}
               </div>
             </div>
+            {activePhoto ? (
+              <div className="mt-3 rounded-2xl border border-white/10 bg-white/10 p-3">
+                <div className="flex flex-wrap items-center gap-2 text-xs font-bold text-slate-200">
+                  <span>{activePhoto.originalFileName || activePhoto.fileName || "사진"}</span>
+                  {activePhoto.uploadedBy ? <span className="rounded-full bg-white/10 px-2 py-1">업로더 {activePhoto.uploadedBy}</span> : null}
+                  {activePhotoDeleteRequested ? <span className="rounded-full bg-amber-300 px-2 py-1 font-black text-amber-950">삭제요청중</span> : null}
+                </div>
+                {canRequestDelete ? (
+                  <button type="button" onClick={handleDeleteRequest} className="mt-3 rounded-xl bg-amber-300 px-3 py-2 text-xs font-black text-amber-950">삭제요청</button>
+                ) : null}
+              </div>
+            ) : null}
           </div>
         ) : null}
 
