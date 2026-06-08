@@ -180,7 +180,14 @@ function getCurrentPortalMonth() {
 
 function normalizePhotoCategory(value) {
   const text = String(value || "").trim();
-  if (text === "\uC2DC\uACF5\uD6C4") return "\uC644\uB8CC\uC0AC\uC9C4";
+  const lower = text.toLowerCase();
+  if (
+    text === "\uC2DC\uACF5\uD6C4" ||
+    text === "\uC644\uB8CC\uC0AC\uC9C4" ||
+    lower === "complete" ||
+    lower === "completion" ||
+    lower === "after"
+  ) return "\uC644\uB8CC\uC0AC\uC9C4";
   return PHOTO_CATEGORY_OPTIONS.includes(text) ? text : "\uAE30\uD0C0";
 }
 
@@ -365,7 +372,14 @@ function countPhotosByCategory(photos = []) {
   return counts;
 }
 function completionPhotoCount(job) {
-  return Number(job?.photoCounts?.완료사진 || 0);
+  const counts = job?.photoCounts || {};
+  return (
+    Number(counts?.완료사진 || 0) +
+    Number(counts?.시공후 || 0) +
+    Number(counts?.complete || 0) +
+    Number(counts?.completion || 0) +
+    Number(counts?.after || 0)
+  );
 }
 
 function hasCompletionPhoto(job) {
@@ -1163,6 +1177,37 @@ export default function PartnerInstallerPortal() {
     }
   };
 
+  const getLatestCompletionPhotoCount = async (job) => {
+    if (!job || !user) return 0;
+
+    const month = job.month || job.sheet || "";
+    const orderNo = job.id || job.jobId || "";
+    const siteId = job.id || job.jobId || `${month}-ROW${job.rowNumber}`;
+
+    try {
+      const result = await apiPost({
+        action: "getPhotoMetaCounts",
+        ...buildPhotoAuthPayload(),
+        month,
+        rowNumber: job.rowNumber || "",
+        orderNo,
+        siteId,
+      });
+
+      if (result?.success === true && result.counts) {
+        const key = jobKey(job);
+        applyJobUpdate(key, {
+          photoCounts: result.counts || {},
+        });
+        return completionPhotoCount({ ...job, photoCounts: result.counts || {} });
+      }
+    } catch (error) {
+      console.warn("[complete-report] getPhotoMetaCounts failed", error);
+    }
+
+    return completionPhotoCount(job);
+  };
+
   const completeJob = async (job) => {
     if (!job || !user) return;
 
@@ -1171,7 +1216,9 @@ export default function PartnerInstallerPortal() {
       return;
     }
 
-    if (!hasCompletionPhoto(job)) {
+    const latestCompletionCount = await getLatestCompletionPhotoCount(job);
+
+    if (latestCompletionCount <= 0) {
       setActionMessage("완료사진을 1장 이상 등록한 뒤 완료보고할 수 있습니다.");
       return;
     }
