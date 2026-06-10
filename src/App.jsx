@@ -576,8 +576,8 @@ export default function PartnerInstallerPortal() {
           ...partnerAuthPayload(user, partnerAuthPassword || user.authPassword || ""),
           month: detailJob.month,
           rowNumber: detailJob.rowNumber,
-          orderNo: detailJob.id || detailJob.jobId || "",
-          siteId: detailJob.id || detailJob.jobId || `${detailJob.month}-ROW${detailJob.rowNumber}`,
+          orderNo: detailJob.orderNo || "",
+          siteId: detailJob.siteId || detailJob.jobId || detailJob.id || `${detailJob.month}-ROW${detailJob.rowNumber}`,
         });
 
         if (ignore || !result.success) return;
@@ -1145,8 +1145,10 @@ export default function PartnerInstallerPortal() {
         action: "assignEngineer",
         ...partnerAuthPayload(user, partnerAuthPassword || user.authPassword || ""),
         rowNumber: job.rowNumber || "",
-        jobId: job.id || job.jobId || "",
-        id: job.id || "",
+        jobId: job.siteId || job.jobId || job.id || "",
+        id: job.siteId || job.jobId || job.id || "",
+        siteId: job.siteId || job.jobId || job.id || "",
+        orderNo: job.orderNo || "",
         month: job.month || job.sheet || "",
         partnerName: user.partnerName || job.partner || "",
         engineerName: engineer,
@@ -1181,8 +1183,8 @@ export default function PartnerInstallerPortal() {
     if (!job || !user) return 0;
 
     const month = job.month || job.sheet || "";
-    const orderNo = job.id || job.jobId || "";
-    const siteId = job.id || job.jobId || `${month}-ROW${job.rowNumber}`;
+    const orderNo = job.orderNo || "";
+    const siteId = job.siteId || job.jobId || job.id || `${month}-ROW${job.rowNumber}`;
 
     try {
       const result = await apiPost({
@@ -1233,8 +1235,10 @@ export default function PartnerInstallerPortal() {
         action: "completeJob",
         ...partnerAuthPayload(user, partnerAuthPassword || user.authPassword || ""),
         rowNumber: job.rowNumber || "",
-        jobId: job.id || job.jobId || "",
-        id: job.id || "",
+        jobId: job.siteId || job.jobId || job.id || "",
+        id: job.siteId || job.jobId || job.id || "",
+        siteId: job.siteId || job.jobId || job.id || "",
+        orderNo: job.orderNo || "",
         month: job.month || job.sheet || "",
         role: user.role,
         partnerName: user.partnerName || job.partner || "",
@@ -1290,8 +1294,10 @@ export default function PartnerInstallerPortal() {
         action: "addHistory",
         ...partnerAuthPayload(user, partnerAuthPassword || user.authPassword || ""),
         rowNumber: job.rowNumber || "",
-        jobId: job.id || job.jobId || "",
-        id: job.id || "",
+        jobId: job.siteId || job.jobId || job.id || "",
+        id: job.siteId || job.jobId || job.id || "",
+        siteId: job.siteId || job.jobId || job.id || "",
+        orderNo: job.orderNo || "",
         month: job.month || job.sheet || "",
         role: user.role,
         partnerName: user.partnerName || job.partner || "",
@@ -1331,8 +1337,8 @@ export default function PartnerInstallerPortal() {
     const totalStart = r2Now();
     console.info("[photo-upload] r2 upload flow entered");
     const month = job.month || job.sheet || "";
-    const siteId = job.id || job.jobId || `${month}-ROW${job.rowNumber}`;
-    const orderNo = job.id || job.jobId || "";
+    const siteId = job.siteId || job.jobId || job.id || `${month}-ROW${job.rowNumber}`;
+    const orderNo = job.orderNo || "";
     const category = normalizePhotoCategory(selectedCategory);
 
     const presignStart = r2Now();
@@ -1450,8 +1456,8 @@ export default function PartnerInstallerPortal() {
     setPhotoViewerError("");
 
     const month = job.month || job.sheet || "";
-    const siteId = job.id || job.jobId || `${month}-ROW${job.rowNumber}`;
-    const orderNo = job.id || job.jobId || "";
+    const siteId = job.siteId || job.jobId || job.id || `${month}-ROW${job.rowNumber}`;
+    const orderNo = job.orderNo || "";
 
     try {
       const listStart = r2Now();
@@ -1502,8 +1508,8 @@ export default function PartnerInstallerPortal() {
       photoId: photo.photoId,
       month,
       rowNumber,
-      orderNo: job.id || job.jobId || photo.orderNo || "",
-      siteId: job.id || job.jobId || photo.siteId || (month && rowNumber ? `${month}-ROW${rowNumber}` : ""),
+      orderNo: job.orderNo || photo.orderNo || "",
+      siteId: job.siteId || job.jobId || job.id || photo.siteId || (month && rowNumber ? `${month}-ROW${rowNumber}` : ""),
     });
     logR2Timing("partner-photo-viewer", "createR2ViewUrl success", viewStart);
     return data.viewUrl;
@@ -1521,8 +1527,8 @@ export default function PartnerInstallerPortal() {
         photoId: photo.photoId,
         month: photo.month || month,
         rowNumber: photo.rowNumber || rowNumber,
-        orderNo: job.id || job.jobId || photo.orderNo || "",
-        siteId: job.id || job.jobId || photo.siteId || (month && rowNumber ? `${month}-ROW${rowNumber}` : ""),
+        orderNo: job.orderNo || photo.orderNo || "",
+        siteId: job.siteId || job.jobId || job.id || photo.siteId || (month && rowNumber ? `${month}-ROW${rowNumber}` : ""),
       })),
     });
     logR2Timing("partner-photo-viewer", "batchCreateR2ViewUrls success", viewStart);
@@ -1545,8 +1551,8 @@ export default function PartnerInstallerPortal() {
       storageKey: photo.storageKey || "",
       month,
       rowNumber,
-      orderNo: job.id || job.jobId || photo.orderNo || "",
-      siteId: job.id || job.jobId || photo.siteId || (month && rowNumber ? `${month}-ROW${rowNumber}` : ""),
+      orderNo: job.orderNo || photo.orderNo || "",
+      siteId: job.siteId || job.jobId || job.id || photo.siteId || (month && rowNumber ? `${month}-ROW${rowNumber}` : ""),
       reason,
     });
 
@@ -1568,8 +1574,8 @@ export default function PartnerInstallerPortal() {
     const check = validateUploadFiles(fileList, selectedCategory);
     const key = jobKey(job);
     const month = job.month || job.sheet || "";
-    const siteId = job.id || job.jobId || `${month}-ROW${job.rowNumber}`;
-    const orderNo = job.id || job.jobId || "";
+    const siteId = job.siteId || job.jobId || job.id || `${month}-ROW${job.rowNumber}`;
+    const orderNo = job.orderNo || "";
 
     if (!check.ok) { setActionMessage(check.message); return { success: false, message: check.message }; }
 
