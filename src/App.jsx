@@ -40,6 +40,13 @@ const buildPhotoJobPayload = (job, month) => ({
   siteId: getJobSiteId(job),
   storageKey: job?.storageKey || "",
 });
+const getPhotoIdentityKey = (job, month) => {
+  const payload = buildPhotoJobPayload(job, month);
+  if (payload.siteId) return `${payload.month || ""}|site:${payload.siteId}`;
+  if (payload.orderNo) return `${payload.month || ""}|order:${payload.orderNo}`;
+  if (payload.rowNumber) return `${payload.month || ""}|row:${payload.rowNumber}`;
+  return "";
+};
 const SESSION_STORAGE_KEY = "daelimPartnerPortalUser";
 const SESSION_TTL = 1000 * 60 * 60 * 8;
 
@@ -1449,7 +1456,8 @@ export default function PartnerInstallerPortal() {
 
   const loadPhotoGallery = async (job, initialCategory = "\uC804\uCCB4") => {
     if (!job || !user) return;
-    const cacheKey = `${job.month || job.sheet || ""}_${job.rowNumber || ""}`;
+    const month = job.month || job.sheet || "";
+    const cacheKey = getPhotoIdentityKey(job, month);
     const cachedGallery = photoViewerListCacheRef.current[cacheKey];
     setPhotoViewerJob(job);
     setPhotoViewerInitialCategory(initialCategory || "\uC804\uCCB4");
@@ -1463,12 +1471,12 @@ export default function PartnerInstallerPortal() {
     }
     setPhotoViewerError("");
 
-    const month = job.month || job.sheet || "";
     const photoPayload = buildPhotoJobPayload(job, month);
 
     try {
       const listStart = r2Now();
-      console.info("[photo-viewer] listPhotos fetch", { key: cacheKey, ...photoPayload });
+      console.info("[photo-viewer] open start", { key: cacheKey, ...photoPayload });
+      console.info("[photo-viewer] listPhotos request start", { key: cacheKey, ...photoPayload });
       const result = await apiPost({
         action: "listPhotos",
         ...buildPhotoAuthPayload(),
@@ -1477,7 +1485,7 @@ export default function PartnerInstallerPortal() {
       });
 
       if (result.success) {
-        logR2Timing("partner-photo-viewer", "listPhotos success", listStart, { count: (result.photos || []).length });
+        logR2Timing("partner-photo-viewer", "listPhotos response", listStart, { count: (result.photos || []).length });
         const photos = result.photos || [];
         const actualCounts = countPhotosByCategory(photos);
         const info = { counts: actualCounts, urls: job.photoUrls || {}, source: "listPhotos" };
@@ -1640,7 +1648,7 @@ export default function PartnerInstallerPortal() {
           })
           .catch((countError) => { console.warn("[photo-upload] count background refresh failed", countError); });
 
-        delete photoViewerListCacheRef.current[`${month}_${job.rowNumber || ""}`];
+        delete photoViewerListCacheRef.current[getPhotoIdentityKey(job, month)];
         logR2Timing("photo-upload", "batch total", uploadBatchStart, { files: fileList.length, success: successCount, failed: 0, path: "single", storage: usedStorage });
         const message = usedStorage === "r2"
           ? `${selectedCategory} ${successCount}\uC7A5 \uC0AC\uC9C4\uB4F1\uB85D\uC774 \uC644\uB8CC\uB418\uC5C8\uC2B5\uB2C8\uB2E4.`
@@ -1772,7 +1780,7 @@ export default function PartnerInstallerPortal() {
           console.warn("[photo-upload] count background refresh failed", countError);
         });
 
-      delete photoViewerListCacheRef.current[`${month}_${job.rowNumber || ""}`];
+      delete photoViewerListCacheRef.current[getPhotoIdentityKey(job, month)];
       logR2Timing("photo-upload", "batch total", uploadBatchStart, { files: fileList.length, success: successCount, failed: failureCount, storage: r2Uploads.length ? "r2" : "drive" });
       const message = failureCount
         ? `${successCount}\uC7A5 \uB4F1\uB85D \uC644\uB8CC, ${failureCount}\uC7A5 \uC2E4\uD328`
@@ -3326,7 +3334,7 @@ function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false,
           <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-950 p-3 text-white">
             <div className="relative flex min-h-[280px] items-center justify-center overflow-hidden rounded-xl bg-black md:min-h-[420px]" onTouchStart={(e) => { touchStartXRef.current = e.touches?.[0]?.clientX ?? null; }} onTouchEnd={(e) => { if (touchStartXRef.current === null) return; const endX = e.changedTouches?.[0]?.clientX ?? touchStartXRef.current; const diff = touchStartXRef.current - endX; touchStartXRef.current = null; if (Math.abs(diff) >= 40) move(diff > 0 ? 1 : -1); }}>
               {imageLoading ? <div className="flex items-center gap-2 text-sm font-bold text-white"><Loader2 className="h-4 w-4 animate-spin" />{"\uC0AC\uC9C4 \uBD88\uB7EC\uC624\uB294 \uC911"}</div> : null}
-              {!imageLoading && imageUrl ? <button type="button" onClick={() => setZoomOpen(true)} className="flex h-full w-full items-center justify-center" aria-label="\uC0AC\uC9C4 \uD655\uB300\uBCF4\uAE30"><img src={imageUrl} alt="\uC0AC\uC9C4 \uC0C1\uC138" className="max-h-[70vh] w-full object-contain" onLoad={() => logR2Timing("partner-photo-viewer", "image displayed", imageDisplayStartRef.current || r2Now())} /></button> : null}
+              {!imageLoading && imageUrl ? <button type="button" onClick={() => setZoomOpen(true)} className="flex h-full w-full items-center justify-center" aria-label="\uC0AC\uC9C4 \uD655\uB300\uBCF4\uAE30"><img src={imageUrl} alt="\uC0AC\uC9C4 \uC0C1\uC138" loading="lazy" decoding="async" className="max-h-[70vh] w-full object-contain" onLoad={() => logR2Timing("partner-photo-viewer", "first image loaded", imageDisplayStartRef.current || r2Now())} /></button> : null}
               {!imageLoading && imageError ? <div className="mx-4 rounded-xl bg-rose-500/15 px-4 py-3 text-center text-sm font-bold text-rose-100">{imageError}</div> : null}
               {visiblePhotos.length > 1 ? (
                 <>
@@ -3372,7 +3380,7 @@ function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false,
             <button type="button" onClick={() => setZoomOpen(false)} className="rounded-full bg-white/15 p-3 text-white"><X className="h-5 w-5" /></button>
           </div>
           <div className="relative flex min-h-0 flex-1 items-center justify-center">
-            <img src={imageUrl} alt="\uC0AC\uC9C4 \uC0C1\uC138" className="max-h-full max-w-full object-contain" />
+            <img src={imageUrl} alt="\uC0AC\uC9C4 \uC0C1\uC138" loading="lazy" decoding="async" className="max-h-full max-w-full object-contain" onLoad={() => logR2Timing("partner-photo-viewer", "zoom image loaded", imageDisplayStartRef.current || r2Now())} />
             {visiblePhotos.length > 1 ? (<>
               <button type="button" onClick={() => move(-1)} className="absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-white/90 px-4 py-3 text-lg font-black text-slate-900">{"<"}</button>
               <button type="button" onClick={() => move(1)} className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-white/90 px-4 py-3 text-lg font-black text-slate-900">{">"}</button>
