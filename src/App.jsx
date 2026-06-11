@@ -25,7 +25,7 @@ const buildR2FastViewUrl = (storageKey) =>
 const isLegacyRowIdentity = (value) =>
   /^(?:\d{2}\.\d{2}-)?ROW-?\d+$/i.test(String(value || "").trim());
 const getJobSiteId = (job) => {
-  const candidates = [job?.siteId, job?.SITE_ID, job?.jobId, job?.JOB_ID];
+  const candidates = [job?.siteId, job?.SITE_ID];
   const value = candidates.map((item) => String(item || "").trim()).find(Boolean) || "";
   return isLegacyRowIdentity(value) ? "" : value;
 };
