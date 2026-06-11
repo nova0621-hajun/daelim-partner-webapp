@@ -920,8 +920,10 @@ export default function PartnerInstallerPortal() {
     const loginApiStart = r2Now();
     const result = await apiPost({
       action: "partnerLogin",
+      appType: "partner_portal",
       id: trimmedId,
       password: trimmedPw,
+      userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "",
     });
     logPartnerLoginTiming("login api done", loginApiStart, { success: result.success === true });
 
