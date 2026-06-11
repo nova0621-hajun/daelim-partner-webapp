@@ -22,6 +22,24 @@ const WEBAPP_URL =
 const R2_PUBLIC_BASE_URL = "https://daelim-r2-photo-worker.nova0621.workers.dev";
 const buildR2FastViewUrl = (storageKey) =>
   storageKey ? `${R2_PUBLIC_BASE_URL}/fast-view?key=${encodeURIComponent(storageKey)}` : "";
+const isLegacyRowIdentity = (value) =>
+  /^(?:\d{2}\.\d{2}-)?ROW-?\d+$/i.test(String(value || "").trim());
+const getJobSiteId = (job) => {
+  const candidates = [job?.siteId, job?.SITE_ID, job?.jobId, job?.JOB_ID];
+  const value = candidates.map((item) => String(item || "").trim()).find(Boolean) || "";
+  return isLegacyRowIdentity(value) ? "" : value;
+};
+const getJobOrderNo = (job) => {
+  const value = String(job?.orderNo || job?.ORDER_NO || "").trim();
+  return isLegacyRowIdentity(value) ? "" : value;
+};
+const buildPhotoJobPayload = (job, month) => ({
+  month,
+  rowNumber: job?.rowNumber || "",
+  orderNo: getJobOrderNo(job),
+  siteId: getJobSiteId(job),
+  storageKey: job?.storageKey || "",
+});
 const SESSION_STORAGE_KEY = "daelimPartnerPortalUser";
 const SESSION_TTL = 1000 * 60 * 60 * 8;
 
@@ -574,10 +592,7 @@ export default function PartnerInstallerPortal() {
         const result = await apiPost({
           action: "getPhotoMetaCounts",
           ...partnerAuthPayload(user, partnerAuthPassword || user.authPassword || ""),
-          month: detailJob.month,
-          rowNumber: detailJob.rowNumber,
-          orderNo: detailJob.orderNo || "",
-          siteId: detailJob.siteId || detailJob.jobId || detailJob.id || `${detailJob.month}-ROW${detailJob.rowNumber}`,
+          ...buildPhotoJobPayload(detailJob, detailJob.month),
         });
 
         if (ignore || !result.success) return;
@@ -1141,14 +1156,15 @@ export default function PartnerInstallerPortal() {
     setActionMessage("");
 
     try {
+      const photoPayload = buildPhotoJobPayload(job, job.month || job.sheet || "");
       const result = await apiPost({
         action: "assignEngineer",
         ...partnerAuthPayload(user, partnerAuthPassword || user.authPassword || ""),
         rowNumber: job.rowNumber || "",
-        jobId: job.siteId || job.jobId || job.id || "",
-        id: job.siteId || job.jobId || job.id || "",
-        siteId: job.siteId || job.jobId || job.id || "",
-        orderNo: job.orderNo || "",
+        jobId: photoPayload.siteId || "",
+        id: photoPayload.siteId || "",
+        siteId: photoPayload.siteId || "",
+        orderNo: photoPayload.orderNo || "",
         month: job.month || job.sheet || "",
         partnerName: user.partnerName || job.partner || "",
         engineerName: engineer,
@@ -1183,17 +1199,13 @@ export default function PartnerInstallerPortal() {
     if (!job || !user) return 0;
 
     const month = job.month || job.sheet || "";
-    const orderNo = job.orderNo || "";
-    const siteId = job.siteId || job.jobId || job.id || `${month}-ROW${job.rowNumber}`;
+    const photoPayload = buildPhotoJobPayload(job, month);
 
     try {
       const result = await apiPost({
         action: "getPhotoMetaCounts",
         ...buildPhotoAuthPayload(),
-        month,
-        rowNumber: job.rowNumber || "",
-        orderNo,
-        siteId,
+        ...photoPayload,
       });
 
       if (result?.success === true && result.counts) {
@@ -1231,14 +1243,15 @@ export default function PartnerInstallerPortal() {
     setActionMessage("");
 
     try {
+      const photoPayload = buildPhotoJobPayload(job, job.month || job.sheet || "");
       const result = await apiPost({
         action: "completeJob",
         ...partnerAuthPayload(user, partnerAuthPassword || user.authPassword || ""),
         rowNumber: job.rowNumber || "",
-        jobId: job.siteId || job.jobId || job.id || "",
-        id: job.siteId || job.jobId || job.id || "",
-        siteId: job.siteId || job.jobId || job.id || "",
-        orderNo: job.orderNo || "",
+        jobId: photoPayload.siteId || "",
+        id: photoPayload.siteId || "",
+        siteId: photoPayload.siteId || "",
+        orderNo: photoPayload.orderNo || "",
         month: job.month || job.sheet || "",
         role: user.role,
         partnerName: user.partnerName || job.partner || "",
@@ -1290,14 +1303,15 @@ export default function PartnerInstallerPortal() {
     setActionMessage("");
 
     try {
+      const photoPayload = buildPhotoJobPayload(job, job.month || job.sheet || "");
       const result = await apiPost({
         action: "addHistory",
         ...partnerAuthPayload(user, partnerAuthPassword || user.authPassword || ""),
         rowNumber: job.rowNumber || "",
-        jobId: job.siteId || job.jobId || job.id || "",
-        id: job.siteId || job.jobId || job.id || "",
-        siteId: job.siteId || job.jobId || job.id || "",
-        orderNo: job.orderNo || "",
+        jobId: photoPayload.siteId || "",
+        id: photoPayload.siteId || "",
+        siteId: photoPayload.siteId || "",
+        orderNo: photoPayload.orderNo || "",
         month: job.month || job.sheet || "",
         role: user.role,
         partnerName: user.partnerName || job.partner || "",
@@ -1337,18 +1351,15 @@ export default function PartnerInstallerPortal() {
     const totalStart = r2Now();
     console.info("[photo-upload] r2 upload flow entered");
     const month = job.month || job.sheet || "";
-    const siteId = job.siteId || job.jobId || job.id || `${month}-ROW${job.rowNumber}`;
-    const orderNo = job.orderNo || "";
+    const photoPayload = buildPhotoJobPayload(job, month);
+    const { siteId, orderNo } = photoPayload;
     const category = normalizePhotoCategory(selectedCategory);
 
     const presignStart = r2Now();
-    console.info("[photo-upload] presignUpload start");
+    console.info("[photo-upload] presignUpload start", photoPayload);
     const presign = await callR2WorkerApi("/presignUpload", {
       ...buildPhotoAuthPayload(),
-      month,
-      rowNumber: job.rowNumber || "",
-      orderNo,
-      siteId,
+      ...photoPayload,
       customer: job.customer || "",
       installDate: job.installDate || job.woodDate || "",
       photoCategory: category,
@@ -1382,10 +1393,7 @@ export default function PartnerInstallerPortal() {
     const metaResult = await apiPost({
       action: "savePhotoMeta",
       ...buildPhotoAuthPayload(),
-      orderNo,
-      siteId,
-      month,
-      rowNumber: job.rowNumber || "",
+      ...photoPayload,
       customer: job.customer || "",
       installDate: job.installDate || job.woodDate || "",
       displayFolder: presign.displayFolder,
@@ -1456,19 +1464,15 @@ export default function PartnerInstallerPortal() {
     setPhotoViewerError("");
 
     const month = job.month || job.sheet || "";
-    const siteId = job.siteId || job.jobId || job.id || `${month}-ROW${job.rowNumber}`;
-    const orderNo = job.orderNo || "";
+    const photoPayload = buildPhotoJobPayload(job, month);
 
     try {
       const listStart = r2Now();
-      console.info("[photo-viewer] listPhotos fetch", { key: cacheKey });
+      console.info("[photo-viewer] listPhotos fetch", { key: cacheKey, ...photoPayload });
       const result = await apiPost({
         action: "listPhotos",
         ...buildPhotoAuthPayload(),
-        month,
-        rowNumber: job.rowNumber || "",
-        orderNo,
-        siteId,
+        ...photoPayload,
         includeDeleted: false,
       });
 
@@ -1501,6 +1505,7 @@ export default function PartnerInstallerPortal() {
     const job = photoViewerJob || {};
     const month = job.month || job.sheet || photo.month || "";
     const rowNumber = job.rowNumber || photo.rowNumber || "";
+    const photoPayload = buildPhotoJobPayload(job, month);
     const viewStart = r2Now();
     const data = await callR2WorkerApi("/presignView", {
       ...buildPhotoAuthPayload(),
@@ -1508,8 +1513,8 @@ export default function PartnerInstallerPortal() {
       photoId: photo.photoId,
       month,
       rowNumber,
-      orderNo: job.orderNo || photo.orderNo || "",
-      siteId: job.siteId || job.jobId || job.id || photo.siteId || (month && rowNumber ? `${month}-ROW${rowNumber}` : ""),
+      orderNo: photoPayload.orderNo || photo.orderNo || "",
+      siteId: photoPayload.siteId || photo.siteId || "",
     });
     logR2Timing("partner-photo-viewer", "createR2ViewUrl success", viewStart);
     return data.viewUrl;
@@ -1519,6 +1524,7 @@ export default function PartnerInstallerPortal() {
     const job = photoViewerJob || {};
     const month = job.month || job.sheet || "";
     const rowNumber = job.rowNumber || "";
+    const photoPayload = buildPhotoJobPayload(job, month);
     const viewStart = r2Now();
     const data = await callR2WorkerApi("/batchPresignView", {
       ...buildPhotoAuthPayload(),
@@ -1527,8 +1533,8 @@ export default function PartnerInstallerPortal() {
         photoId: photo.photoId,
         month: photo.month || month,
         rowNumber: photo.rowNumber || rowNumber,
-        orderNo: job.orderNo || photo.orderNo || "",
-        siteId: job.siteId || job.jobId || job.id || photo.siteId || (month && rowNumber ? `${month}-ROW${rowNumber}` : ""),
+        orderNo: photoPayload.orderNo || photo.orderNo || "",
+        siteId: photoPayload.siteId || photo.siteId || "",
       })),
     });
     logR2Timing("partner-photo-viewer", "batchCreateR2ViewUrls success", viewStart);
@@ -1544,6 +1550,7 @@ export default function PartnerInstallerPortal() {
     const job = photoViewerJob || {};
     const month = job.month || job.sheet || photo.month || "";
     const rowNumber = job.rowNumber || photo.rowNumber || "";
+    const photoPayload = buildPhotoJobPayload(job, month);
     const result = await apiPost({
       action: "requestDeleteR2Photo",
       ...buildPhotoAuthPayload(),
@@ -1551,8 +1558,8 @@ export default function PartnerInstallerPortal() {
       storageKey: photo.storageKey || "",
       month,
       rowNumber,
-      orderNo: job.orderNo || photo.orderNo || "",
-      siteId: job.siteId || job.jobId || job.id || photo.siteId || (month && rowNumber ? `${month}-ROW${rowNumber}` : ""),
+      orderNo: photoPayload.orderNo || photo.orderNo || "",
+      siteId: photoPayload.siteId || photo.siteId || "",
       reason,
     });
 
@@ -1574,8 +1581,9 @@ export default function PartnerInstallerPortal() {
     const check = validateUploadFiles(fileList, selectedCategory);
     const key = jobKey(job);
     const month = job.month || job.sheet || "";
-    const siteId = job.siteId || job.jobId || job.id || `${month}-ROW${job.rowNumber}`;
-    const orderNo = job.orderNo || "";
+    const photoPayload = buildPhotoJobPayload(job, month);
+    const { siteId, orderNo } = photoPayload;
+    console.info("[photo-upload] batch payload", photoPayload);
 
     if (!check.ok) { setActionMessage(check.message); return { success: false, message: check.message }; }
 
@@ -1623,7 +1631,7 @@ export default function PartnerInstallerPortal() {
         logR2Timing("photo-upload", "count optimistic", uploadBatchStart, { total: Object.values(optimisticCounts).reduce((sum, value) => sum + Number(value || 0), 0) });
 
         const countRefreshStart = r2Now();
-        apiPost({ action: "getPhotoMetaCounts", ...authPayload, month, rowNumber: job.rowNumber || "", orderNo, siteId })
+        apiPost({ action: "getPhotoMetaCounts", ...authPayload, ...photoPayload })
           .then((serverCount) => {
             logR2Timing("photo-upload", "count background refresh", countRefreshStart, { total: serverCount?.total || 0 });
             if (serverCount?.success === true && serverCount.counts) {
@@ -1647,7 +1655,7 @@ export default function PartnerInstallerPortal() {
       const batchPresign = await apiPost({
         action: "batchPresignR2Upload",
         ...authPayload,
-        month, rowNumber: job.rowNumber || "", orderNo, siteId,
+        ...photoPayload,
         customer: job.customer || "",
         installDate: job.installDate || job.woodDate || "",
         photoCategory: selectedCategory,
@@ -1714,7 +1722,7 @@ export default function PartnerInstallerPortal() {
           action: "batchSavePhotoMeta",
           ...authPayload,
           metas: r2Uploads.map(({ presign, item }) => ({
-            orderNo, siteId, month, rowNumber: job.rowNumber || "",
+            ...photoPayload,
             customer: job.customer || "",
             installDate: job.installDate || job.woodDate || "",
             displayFolder: presign.displayFolder, photoCategory: selectedCategory,
@@ -1753,7 +1761,7 @@ export default function PartnerInstallerPortal() {
       logR2Timing("photo-upload", "count optimistic", uploadBatchStart, { total: Object.values(optimisticCounts).reduce((sum, value) => sum + Number(value || 0), 0) });
 
       const countRefreshStart = r2Now();
-      apiPost({ action: "getPhotoMetaCounts", ...authPayload, month, rowNumber: job.rowNumber || "", orderNo, siteId })
+      apiPost({ action: "getPhotoMetaCounts", ...authPayload, ...photoPayload })
         .then((serverCount) => {
           logR2Timing("photo-upload", "count background refresh", countRefreshStart, { total: serverCount?.total || 0 });
           if (serverCount?.success === true && serverCount.counts) {
