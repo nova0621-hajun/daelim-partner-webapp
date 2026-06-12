@@ -47,6 +47,7 @@ const getPhotoIdentityKey = (job, month) => {
   if (payload.rowNumber) return `${payload.month || ""}|row:${payload.rowNumber}`;
   return "";
 };
+const isPhotoCountLoaded = (job) => job?.photoCountsLoaded === true;
 const SESSION_STORAGE_KEY = "daelimPartnerPortalUser";
 const SESSION_TTL = 1000 * 60 * 60 * 8;
 
@@ -608,6 +609,7 @@ export default function PartnerInstallerPortal() {
         applyJobUpdate(key, {
           photoCounts: result.counts || {},
           photoUrls: detailJob.photoUrls || {},
+          photoCountsLoaded: true,
         });
       } catch (err) {
         console.error(err);
@@ -1221,6 +1223,7 @@ export default function PartnerInstallerPortal() {
         const key = jobKey(job);
         applyJobUpdate(key, {
           photoCounts: result.counts || {},
+          photoCountsLoaded: true,
         });
         return completionPhotoCount({ ...job, photoCounts: result.counts || {} });
       }
@@ -1355,6 +1358,84 @@ export default function PartnerInstallerPortal() {
   };
 
   const buildPhotoAuthPayload = () => partnerAuthPayload(user, partnerAuthPassword || user?.authPassword || "");
+
+  useEffect(() => {
+    if (!user) return;
+
+    const missingJobs = monthVisibleJobs.filter((job) => {
+      const month = job.month || job.sheet || "";
+      if (!month || !job?.rowNumber) return false;
+      if (isPhotoCountLoaded(job)) return false;
+      const payload = buildPhotoJobPayload(job, month);
+      return !!(payload.siteId || payload.orderNo);
+    });
+    if (!missingJobs.length) return;
+
+    let cancelled = false;
+    const groups = new Map();
+    missingJobs.forEach((job) => {
+      const month = job.month || job.sheet || "";
+      const rows = groups.get(month) || [];
+      rows.push(job);
+      groups.set(month, rows);
+    });
+
+    console.info("[photo-count-batch] request", {
+      months: Array.from(groups.keys()),
+      count: missingJobs.length,
+      role: user.role || "",
+    });
+
+    (async () => {
+      for (const [month, rows] of groups.entries()) {
+        if (cancelled) return;
+
+        try {
+          const result = await apiPost({
+            action: "getPhotoMetaCountsBatch",
+            ...buildPhotoAuthPayload(),
+            month,
+            jobs: rows.map((job) => {
+              const payload = buildPhotoJobPayload(job, month);
+              return {
+                key: getPhotoIdentityKey(job, month),
+                month,
+                rowNumber: payload.rowNumber,
+                siteId: payload.siteId,
+                orderNo: payload.orderNo,
+              };
+            }),
+          });
+
+          if (cancelled || result?.success !== true) continue;
+
+          rows.forEach((job) => {
+            const key = getPhotoIdentityKey(job, month);
+            const info = result.results?.[key];
+            if (!info || info.error) return;
+            applyJobUpdate(jobKey(job), (current) => ({
+              ...current,
+              photoCounts: info.counts || current.photoCounts || {},
+              photoUrls: current.photoUrls || {},
+              photoCountsLoaded: true,
+            }));
+          });
+
+          console.info("[photo-count-batch] result", {
+            month,
+            requested: rows.length,
+            errors: result.errors?.length || 0,
+          });
+        } catch (error) {
+          console.warn("[photo-count-batch] failed", error);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [monthVisibleJobs, user?.loginId, user?.id, user?.role, partnerAuthPassword]);
 
   const uploadPhotoToR2 = async ({ job, uploadFile, originalFile, selectedCategory }) => {
     const totalStart = r2Now();
@@ -1494,7 +1575,7 @@ export default function PartnerInstallerPortal() {
         setPhotoViewerPhotos(photos);
         setPhotoViewerInfo(info);
         photoViewerListCacheRef.current[cacheKey] = { photos, info };
-        applyJobUpdate(jobKey(job), { photoCounts: actualCounts, photoUrls: job.photoUrls || {} });
+        applyJobUpdate(jobKey(job), { photoCounts: actualCounts, photoUrls: job.photoUrls || {}, photoCountsLoaded: true });
       } else {
         const emptyInfo = { counts: {}, urls: job.photoUrls || {}, source: "listPhotos" };
         setPhotoViewerPhotos([]);
@@ -1636,7 +1717,7 @@ export default function PartnerInstallerPortal() {
         applyJobUpdate(key, (itemJob) => {
           optimisticCounts = { ...(itemJob.photoCounts || {}) };
           optimisticCounts[selectedCategory] = Number(optimisticCounts[selectedCategory] || 0) + successCount;
-          return { ...itemJob, photo: "\uB4F1\uB85D\uC644\uB8CC", photoUrl: folderUrl || itemJob.photoUrl, photoCounts: optimisticCounts };
+          return { ...itemJob, photo: "\uB4F1\uB85D\uC644\uB8CC", photoUrl: folderUrl || itemJob.photoUrl, photoCounts: optimisticCounts, photoCountsLoaded: true };
         });
         logR2Timing("photo-upload", "count optimistic", uploadBatchStart, { total: Object.values(optimisticCounts).reduce((sum, value) => sum + Number(value || 0), 0) });
 
@@ -1645,7 +1726,7 @@ export default function PartnerInstallerPortal() {
           .then((serverCount) => {
             logR2Timing("photo-upload", "count background refresh", countRefreshStart, { total: serverCount?.total || 0 });
             if (serverCount?.success === true && serverCount.counts) {
-              applyJobUpdate(key, (itemJob) => ({ ...itemJob, photoCounts: serverCount.counts || itemJob.photoCounts || {} }));
+              applyJobUpdate(key, (itemJob) => ({ ...itemJob, photoCounts: serverCount.counts || itemJob.photoCounts || {}, photoCountsLoaded: true }));
             }
           })
           .catch((countError) => { console.warn("[photo-upload] count background refresh failed", countError); });
@@ -1766,6 +1847,7 @@ export default function PartnerInstallerPortal() {
           photoUrl: lastDriveResult?.folderUrl || item.photoUrl,
           photoCounts: optimisticCounts,
           photoUrls: lastDriveResult?.photoUrls || item.photoUrls || {},
+          photoCountsLoaded: true,
         };
       });
       logR2Timing("photo-upload", "count optimistic", uploadBatchStart, { total: Object.values(optimisticCounts).reduce((sum, value) => sum + Number(value || 0), 0) });
@@ -1775,7 +1857,7 @@ export default function PartnerInstallerPortal() {
         .then((serverCount) => {
           logR2Timing("photo-upload", "count background refresh", countRefreshStart, { total: serverCount?.total || 0 });
           if (serverCount?.success === true && serverCount.counts) {
-            applyJobUpdate(key, (item) => ({ ...item, photoCounts: serverCount.counts || item.photoCounts || {} }));
+            applyJobUpdate(key, (item) => ({ ...item, photoCounts: serverCount.counts || item.photoCounts || {}, photoCountsLoaded: true }));
           }
         })
         .catch((countError) => {
