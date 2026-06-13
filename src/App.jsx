@@ -514,6 +514,18 @@ function partnerAuthPayload(user, authPassword) {
   };
 }
 
+function partnerSessionPreferredAuthPayload(user, authPassword) {
+  const auth = partnerAuthPayload(user, authPassword);
+  if (auth.sessionToken) {
+    return {
+      id: auth.id,
+      loginId: auth.loginId,
+      sessionToken: auth.sessionToken,
+    };
+  }
+  return auth;
+}
+
 function fileToBase64(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -857,7 +869,7 @@ export default function PartnerInstallerPortal() {
     if (!loginUser?.partnerName) return [];
 
     const authPassword = loginUser.authPassword || partnerAuthPassword || "";
-    const auth = partnerAuthPayload(loginUser, authPassword);
+    const auth = partnerSessionPreferredAuthPayload(loginUser, authPassword);
     const loadKey = [loginUser.partnerName || "", auth.loginId || "", auth.sessionToken || "", auth.password ? "password" : ""].join("|");
     if (engineerOptionsLoadedKeyRef.current === loadKey && engineerOptions.length) return engineerOptions;
     if (engineerOptionsInFlightRef.current) return engineerOptionsInFlightRef.current;
@@ -869,9 +881,13 @@ export default function PartnerInstallerPortal() {
         id: auth.id || "",
         loginId: auth.loginId || "",
         sessionToken: auth.sessionToken || "",
-        password: auth.password || "",
-        currentPassword: auth.currentPassword || "",
-        authPassword: auth.authPassword || "",
+        ...(auth.sessionToken
+          ? {}
+          : {
+              password: auth.password || "",
+              currentPassword: auth.currentPassword || "",
+              authPassword: auth.authPassword || "",
+            }),
       });
 
       if (!result.success) return [];
