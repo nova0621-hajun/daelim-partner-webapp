@@ -1537,18 +1537,23 @@ export default function PartnerInstallerPortal() {
     });
   };
 
-  const loadPhotoGallery = async (job, initialCategory = "\uC804\uCCB4") => {
+  const loadPhotoGallery = async (job, initialCategory = "\uC804\uCCB4", forceRefresh = false) => {
     if (!job || !user) return;
     const month = job.month || job.sheet || "";
     const cacheKey = getPhotoIdentityKey(job, month);
     const cachedGallery = photoViewerListCacheRef.current[cacheKey];
     setPhotoViewerJob(job);
     setPhotoViewerInitialCategory(initialCategory || "\uC804\uCCB4");
-    if (cachedGallery) {
-      console.info("[photo-viewer] listPhotos cache hit", { key: cacheKey, count: cachedGallery.photos?.length || 0 });
+    if (cachedGallery && !forceRefresh) {
+      console.info("[r2-listPhotos] cache hit", { key: cacheKey, photosLength: cachedGallery.photos?.length || 0 });
       setPhotoViewerPhotos(cachedGallery.photos || []);
       setPhotoViewerInfo(cachedGallery.info || null);
       setPhotoViewerLoading(false);
+      return;
+    }
+    if (cachedGallery) {
+      setPhotoViewerPhotos(cachedGallery.photos || []);
+      setPhotoViewerInfo(cachedGallery.info || null);
     } else {
       setPhotoViewerLoading(true);
     }
@@ -1558,8 +1563,7 @@ export default function PartnerInstallerPortal() {
 
     try {
       const listStart = r2Now();
-      console.info("[photo-viewer] open start", { key: cacheKey, ...photoPayload });
-      console.info("[photo-viewer] listPhotos request start", { key: cacheKey, ...photoPayload });
+      console.info("[r2-listPhotos] request", { key: cacheKey, ...photoPayload });
       const result = await apiPost({
         action: "listPhotos",
         ...buildPhotoAuthPayload(),
@@ -1568,7 +1572,13 @@ export default function PartnerInstallerPortal() {
       });
 
       if (result.success) {
-        logR2Timing("partner-photo-viewer", "listPhotos response", listStart, { count: (result.photos || []).length });
+        logR2Timing("partner-photo-viewer", "r2-listPhotos duration", listStart, { count: (result.photos || []).length });
+        console.info("[r2-listPhotos] response", {
+          success: result.success === true,
+          photosLength: (result.photos || []).length,
+          categories: (result.photos || []).map((photo) => photo.photoCategory || photo.category || ""),
+          duration: r2Elapsed(listStart),
+        });
         const photos = result.photos || [];
         const actualCounts = countPhotosByCategory(photos);
         const info = { counts: actualCounts, urls: job.photoUrls || {}, source: "listPhotos" };
@@ -1655,7 +1665,8 @@ export default function PartnerInstallerPortal() {
     });
 
     if (result.success !== true) throw new Error(result.message || "삭제요청에 실패했습니다.");
-    await loadPhotoGallery(job, photoViewerInitialCategory);
+    delete photoViewerListCacheRef.current[getPhotoIdentityKey(job, month)];
+    await loadPhotoGallery(job, photoViewerInitialCategory, true);
     return result;
   };
   const uploadPhotoFiles = async (job, category, files) => {
@@ -2192,7 +2203,7 @@ export default function PartnerInstallerPortal() {
       ) : null}
 
       {uploadJob ? <UploadModal job={uploadJob} onClose={() => setUploadJob(null)} onSubmit={uploadPhotoFiles} uploading={uploadingJobId === jobKey(uploadJob)} progress={uploadProgress} message={actionMessage} onPhotoView={() => loadPhotoGallery(uploadJob, "\uC804\uCCB4")} /> : null}
-      {photoViewerJob ? <PhotoViewerModal job={photoViewerJob} photos={photoViewerPhotos} photoInfo={photoViewerInfo} loading={photoViewerLoading} error={photoViewerError} initialCategory={photoViewerInitialCategory} onClose={() => setPhotoViewerJob(null)} onRefresh={() => loadPhotoGallery(photoViewerJob, photoViewerInitialCategory)} onViewR2={viewR2Photo} onViewR2Batch={viewR2Photos} user={user} onRequestDelete={requestDeletePortalR2Photo} /> : null}
+      {photoViewerJob ? <PhotoViewerModal job={photoViewerJob} photos={photoViewerPhotos} photoInfo={photoViewerInfo} loading={photoViewerLoading} error={photoViewerError} initialCategory={photoViewerInitialCategory} onClose={() => setPhotoViewerJob(null)} onRefresh={() => loadPhotoGallery(photoViewerJob, photoViewerInitialCategory, true)} onViewR2={viewR2Photo} onViewR2Batch={viewR2Photos} user={user} onRequestDelete={requestDeletePortalR2Photo} /> : null}
       {historyJob ? <HistoryModal job={historyJob} onClose={() => setHistoryJob(null)} onSubmit={addHistory} saving={historySavingJobId === jobKey(historyJob)} message={actionMessage} /> : null}
     </div>
   );
@@ -3121,13 +3132,13 @@ function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false,
 
   const visiblePhotos = useMemo(() => {
     if (activeCategory === ALL_TAB) return r2Photos;
-    return r2Photos.filter((photo) => photo.photoCategory === activeCategory);
+    return r2Photos.filter((photo) => normalizePhotoCategory(photo.photoCategory || photo.category) === activeCategory);
   }, [activeCategory, r2Photos]);
 
   const categoryCount = (category) => {
     const actualCount = category === ALL_TAB
       ? r2Photos.length
-      : r2Photos.filter((photo) => normalizePhotoCategory(photo.photoCategory) === category).length;
+      : r2Photos.filter((photo) => normalizePhotoCategory(photo.photoCategory || photo.category) === category).length;
     const fallbackCount = category === ALL_TAB
       ? PHOTO_CATEGORY_OPTIONS.reduce((sum, key) => sum + numberValue(counts?.[key]), 0)
       : numberValue(counts?.[category]);
@@ -3418,7 +3429,7 @@ function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false,
           <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-950 p-3 text-white">
             <div className="relative flex min-h-[280px] items-center justify-center overflow-hidden rounded-xl bg-black md:min-h-[420px]" onTouchStart={(e) => { touchStartXRef.current = e.touches?.[0]?.clientX ?? null; }} onTouchEnd={(e) => { if (touchStartXRef.current === null) return; const endX = e.changedTouches?.[0]?.clientX ?? touchStartXRef.current; const diff = touchStartXRef.current - endX; touchStartXRef.current = null; if (Math.abs(diff) >= 40) move(diff > 0 ? 1 : -1); }}>
               {imageLoading ? <div className="flex items-center gap-2 text-sm font-bold text-white"><Loader2 className="h-4 w-4 animate-spin" />{"\uC0AC\uC9C4 \uBD88\uB7EC\uC624\uB294 \uC911"}</div> : null}
-              {!imageLoading && imageUrl ? <button type="button" onClick={() => setZoomOpen(true)} className="flex h-full w-full items-center justify-center" aria-label="\uC0AC\uC9C4 \uD655\uB300\uBCF4\uAE30"><img src={imageUrl} alt="\uC0AC\uC9C4 \uC0C1\uC138" loading="lazy" decoding="async" className="max-h-[70vh] w-full object-contain" onLoad={() => logR2Timing("partner-photo-viewer", "first image loaded", imageDisplayStartRef.current || r2Now())} /></button> : null}
+              {!imageLoading && imageUrl ? <button type="button" onClick={() => setZoomOpen(true)} className="flex h-full w-full items-center justify-center" aria-label="\uC0AC\uC9C4 \uD655\uB300\uBCF4\uAE30"><img src={imageUrl} alt="\uC0AC\uC9C4 \uC0C1\uC138" loading="lazy" decoding="async" className="max-h-[70vh] w-full object-contain" onLoad={() => { console.info("[r2-image] first image loaded", { photoKey: getPhotoKey(activePhoto) }); logR2Timing("partner-photo-viewer", "r2-image first image loaded", imageDisplayStartRef.current || r2Now()); }} /></button> : null}
               {!imageLoading && imageError ? <div className="mx-4 rounded-xl bg-rose-500/15 px-4 py-3 text-center text-sm font-bold text-rose-100">{imageError}</div> : null}
               {visiblePhotos.length > 1 ? (
                 <>
@@ -3464,7 +3475,7 @@ function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false,
             <button type="button" onClick={() => setZoomOpen(false)} className="rounded-full bg-white/15 p-3 text-white"><X className="h-5 w-5" /></button>
           </div>
           <div className="relative flex min-h-0 flex-1 items-center justify-center">
-            <img src={imageUrl} alt="\uC0AC\uC9C4 \uC0C1\uC138" loading="lazy" decoding="async" className="max-h-full max-w-full object-contain" onLoad={() => logR2Timing("partner-photo-viewer", "zoom image loaded", imageDisplayStartRef.current || r2Now())} />
+            <img src={imageUrl} alt="\uC0AC\uC9C4 \uC0C1\uC138" loading="lazy" decoding="async" className="max-h-full max-w-full object-contain" onLoad={() => logR2Timing("partner-photo-viewer", "r2-image zoom image loaded", imageDisplayStartRef.current || r2Now())} />
             {visiblePhotos.length > 1 ? (<>
               <button type="button" onClick={() => move(-1)} className="absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-white/90 px-4 py-3 text-lg font-black text-slate-900">{"<"}</button>
               <button type="button" onClick={() => move(1)} className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-white/90 px-4 py-3 text-lg font-black text-slate-900">{">"}</button>
