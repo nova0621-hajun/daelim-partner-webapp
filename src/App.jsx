@@ -864,20 +864,15 @@ export default function PartnerInstallerPortal() {
 
     const requestPromise = (async () => {
       try {
-      const params = new URLSearchParams({
+      const result = await apiPost({
         action: "partnerInstallerData",
         id: auth.id || "",
         loginId: auth.loginId || "",
-        t: String(Date.now()),
+        sessionToken: auth.sessionToken || "",
+        password: auth.password || "",
+        currentPassword: auth.currentPassword || "",
+        authPassword: auth.authPassword || "",
       });
-      if (auth.sessionToken) {
-        params.set("sessionToken", auth.sessionToken);
-      }
-      params.set("password", auth.password || "");
-      params.set("currentPassword", auth.currentPassword || "");
-      params.set("authPassword", auth.authPassword || "");
-      const response = await fetch(`${WEBAPP_URL}?${params.toString()}`);
-      const result = await response.json();
 
       if (!result.success) return [];
 
