@@ -603,6 +603,10 @@ export default function PartnerInstallerPortal() {
   const [visibleJobLimit, setVisibleJobLimit] = useState(JOB_PAGE_SIZE);
   const listRef = useRef(null);
   const engineerRequestRef = useRef(null);
+  const photoCountBatchRequestKeyRef = useRef("");
+  const photoCountBatchInFlightRef = useRef(false);
+  const engineerOptionsLoadedKeyRef = useRef("");
+  const engineerOptionsInFlightRef = useRef(null);
 
   useEffect(() => {
     if (!detailJob?.month || !detailJob?.rowNumber || !user) return;
@@ -857,9 +861,14 @@ export default function PartnerInstallerPortal() {
   const fetchEngineerOptions = async (loginUser) => {
     if (!loginUser?.partnerName) return [];
 
-    try {
-      const authPassword = loginUser.authPassword || partnerAuthPassword || "";
-      const auth = partnerAuthPayload(loginUser, authPassword);
+    const authPassword = loginUser.authPassword || partnerAuthPassword || "";
+    const auth = partnerAuthPayload(loginUser, authPassword);
+    const loadKey = [loginUser.partnerName || "", auth.loginId || "", auth.sessionToken || "", auth.password ? "password" : ""].join("|");
+    if (engineerOptionsLoadedKeyRef.current === loadKey && engineerOptions.length) return engineerOptions;
+    if (engineerOptionsInFlightRef.current) return engineerOptionsInFlightRef.current;
+
+    const requestPromise = (async () => {
+      try {
       const params = new URLSearchParams({
         action: "partnerInstallerData",
         id: auth.id || "",
@@ -878,11 +887,19 @@ export default function PartnerInstallerPortal() {
 
       if (!result.success) return [];
 
-      return buildEngineerOptions(result, loginUser.partnerName);
-    } catch (err) {
-      console.error(err);
-      return [];
-    }
+      const options = buildEngineerOptions(result, loginUser.partnerName);
+      engineerOptionsLoadedKeyRef.current = loadKey;
+      return options;
+      } catch (err) {
+        console.error(err);
+        return [];
+      } finally {
+        engineerOptionsInFlightRef.current = null;
+      }
+    })();
+
+    engineerOptionsInFlightRef.current = requestPromise;
+    return requestPromise;
   };
 
   useEffect(() => {
@@ -1417,6 +1434,15 @@ export default function PartnerInstallerPortal() {
       groups.set(month, rows);
     });
 
+    const requestKey = Array.from(groups.entries())
+      .map(([month, rows]) => `${month}:${rows.map((job) => getPhotoIdentityKey(job, month)).join(",")}`)
+      .join("|");
+    if (photoCountBatchRequestKeyRef.current === requestKey) return;
+    if (photoCountBatchInFlightRef.current) return;
+
+    photoCountBatchRequestKeyRef.current = requestKey;
+    photoCountBatchInFlightRef.current = true;
+
     console.info("[photo-count-batch] request", {
       months: Array.from(groups.keys()),
       count: missingJobs.length,
@@ -1467,7 +1493,9 @@ export default function PartnerInstallerPortal() {
           console.warn("[photo-count-batch] failed", error);
         }
       }
-    })();
+    })().finally(() => {
+      photoCountBatchInFlightRef.current = false;
+    });
 
     return () => {
       cancelled = true;
