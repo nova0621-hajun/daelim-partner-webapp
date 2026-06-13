@@ -81,10 +81,11 @@ function writePartnerSession(user, authPassword) {
   try {
     const cleanUser = { ...user };
     delete cleanUser.currentPassword;
+    if (cleanUser.sessionToken) delete cleanUser.authPassword;
     window.sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({
       savedAt: Date.now(),
       user: cleanUser,
-      authPassword,
+      authPassword: cleanUser.sessionToken ? "" : authPassword,
     }));
     window.localStorage.removeItem(SESSION_STORAGE_KEY);
   } catch (err) {}
@@ -470,7 +471,11 @@ async function apiPost(payload) {
   const text = await response.text();
 
   try {
-    return JSON.parse(text);
+    const data = JSON.parse(text);
+    if (data?.code === "SESSION_EXPIRED") {
+      clearPartnerSession();
+    }
+    return data;
   } catch (err) {
     throw new Error(`API 응답 형식 오류: ${text.slice(0, 160)}`);
   }
@@ -494,6 +499,15 @@ function isUnassignedEngineerValue(value) {
 
 function partnerAuthPayload(user, authPassword) {
   const loginId = String(user?.loginId || user?.id || user?.name || "").trim();
+  const sessionToken = String(user?.sessionToken || "").trim();
+  if (sessionToken) {
+    return {
+      id: loginId,
+      loginId,
+      sessionToken,
+    };
+  }
+
   const password = String(authPassword || user?.authPassword || "").trim();
 
   return {
@@ -846,7 +860,20 @@ export default function PartnerInstallerPortal() {
     try {
       const authPassword = loginUser.authPassword || partnerAuthPassword || "";
       const auth = partnerAuthPayload(loginUser, authPassword);
-      const response = await fetch(`${WEBAPP_URL}?action=partnerInstallerData&id=${encodeURIComponent(auth.id)}&loginId=${encodeURIComponent(auth.loginId)}&password=${encodeURIComponent(auth.password)}&currentPassword=${encodeURIComponent(auth.currentPassword)}&authPassword=${encodeURIComponent(auth.authPassword)}&t=${Date.now()}`);
+      const params = new URLSearchParams({
+        action: "partnerInstallerData",
+        id: auth.id || "",
+        loginId: auth.loginId || "",
+        t: String(Date.now()),
+      });
+      if (auth.sessionToken) {
+        params.set("sessionToken", auth.sessionToken);
+      } else {
+        params.set("password", auth.password || "");
+        params.set("currentPassword", auth.currentPassword || "");
+        params.set("authPassword", auth.authPassword || "");
+      }
+      const response = await fetch(`${WEBAPP_URL}?${params.toString()}`);
       const result = await response.json();
 
       if (!result.success) return [];
@@ -945,6 +972,11 @@ export default function PartnerInstallerPortal() {
       passwordStatus: result.passwordStatus || "",
       mustChangePassword: result.mustChangePassword === true,
       authPassword: trimmedPw,
+      sessionToken: result.sessionToken || "",
+      sessionExpiresIn: result.sessionExpiresIn || 0,
+      sessionExpiresAt: result.sessionToken
+        ? Date.now() + Number(result.sessionExpiresIn || 0) * 1000
+        : 0,
     };
 
     if (!loginUser.role) {
@@ -1021,6 +1053,11 @@ export default function PartnerInstallerPortal() {
       passwordStatus: "정상",
       mustChangePassword: false,
       authPassword: nextPassword,
+      sessionToken: result.sessionToken || user.sessionToken || "",
+      sessionExpiresIn: result.sessionExpiresIn || user.sessionExpiresIn || 0,
+      sessionExpiresAt: result.sessionToken
+        ? Date.now() + Number(result.sessionExpiresIn || 0) * 1000
+        : user.sessionExpiresAt || 0,
     };
 
     const rows = await fetchPartnerJobs(nextUser);
@@ -1435,7 +1472,7 @@ export default function PartnerInstallerPortal() {
     return () => {
       cancelled = true;
     };
-  }, [monthVisibleJobs, user?.loginId, user?.id, user?.role, partnerAuthPassword]);
+  }, [monthVisibleJobs, user?.loginId, user?.id, user?.role, user?.sessionToken, partnerAuthPassword]);
 
   const uploadPhotoToR2 = async ({ job, uploadFile, originalFile, selectedCategory }) => {
     const totalStart = r2Now();
