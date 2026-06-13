@@ -81,11 +81,10 @@ function writePartnerSession(user, authPassword) {
   try {
     const cleanUser = { ...user };
     delete cleanUser.currentPassword;
-    if (cleanUser.sessionToken) delete cleanUser.authPassword;
     window.sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({
       savedAt: Date.now(),
       user: cleanUser,
-      authPassword: cleanUser.sessionToken ? "" : authPassword,
+      authPassword,
     }));
     window.localStorage.removeItem(SESSION_STORAGE_KEY);
   } catch (err) {}
@@ -472,8 +471,11 @@ async function apiPost(payload) {
 
   try {
     const data = JSON.parse(text);
-    if (data?.code === "SESSION_EXPIRED") {
-      clearPartnerSession();
+    if (data?.success === false) {
+      console.warn("[partner-api] failed", { action: payload?.action || "", code: data.code || "", message: data.message || "" });
+      if (data?.code === "SESSION_EXPIRED") {
+        clearPartnerSession();
+      }
     }
     return data;
   } catch (err) {
@@ -500,19 +502,12 @@ function isUnassignedEngineerValue(value) {
 function partnerAuthPayload(user, authPassword) {
   const loginId = String(user?.loginId || user?.id || user?.name || "").trim();
   const sessionToken = String(user?.sessionToken || "").trim();
-  if (sessionToken) {
-    return {
-      id: loginId,
-      loginId,
-      sessionToken,
-    };
-  }
-
   const password = String(authPassword || user?.authPassword || "").trim();
 
   return {
     id: loginId,
     loginId,
+    sessionToken,
     password,
     currentPassword: password,
     authPassword: password,
@@ -877,11 +872,10 @@ export default function PartnerInstallerPortal() {
       });
       if (auth.sessionToken) {
         params.set("sessionToken", auth.sessionToken);
-      } else {
-        params.set("password", auth.password || "");
-        params.set("currentPassword", auth.currentPassword || "");
-        params.set("authPassword", auth.authPassword || "");
       }
+      params.set("password", auth.password || "");
+      params.set("currentPassword", auth.currentPassword || "");
+      params.set("authPassword", auth.authPassword || "");
       const response = await fetch(`${WEBAPP_URL}?${params.toString()}`);
       const result = await response.json();
 
