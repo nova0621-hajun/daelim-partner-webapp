@@ -1229,7 +1229,7 @@ export default function PartnerInstallerPortal() {
       const photoPayload = buildPhotoJobPayload(job, job.month || job.sheet || "");
       const result = await apiPost({
         action: "assignEngineer",
-        ...partnerAuthPayload(user, partnerAuthPassword || user.authPassword || ""),
+        ...partnerSessionPreferredAuthPayload(user, partnerAuthPassword || user.authPassword || ""),
         rowNumber: job.rowNumber || "",
         jobId: photoPayload.siteId || "",
         id: photoPayload.siteId || "",
@@ -1317,7 +1317,7 @@ export default function PartnerInstallerPortal() {
       const photoPayload = buildPhotoJobPayload(job, job.month || job.sheet || "");
       const result = await apiPost({
         action: "completeJob",
-        ...partnerAuthPayload(user, partnerAuthPassword || user.authPassword || ""),
+        ...partnerSessionPreferredAuthPayload(user, partnerAuthPassword || user.authPassword || ""),
         rowNumber: job.rowNumber || "",
         jobId: photoPayload.siteId || "",
         id: photoPayload.siteId || "",
@@ -1377,7 +1377,7 @@ export default function PartnerInstallerPortal() {
       const photoPayload = buildPhotoJobPayload(job, job.month || job.sheet || "");
       const result = await apiPost({
         action: "addHistory",
-        ...partnerAuthPayload(user, partnerAuthPassword || user.authPassword || ""),
+        ...partnerSessionPreferredAuthPayload(user, partnerAuthPassword || user.authPassword || ""),
         rowNumber: job.rowNumber || "",
         jobId: photoPayload.siteId || "",
         id: photoPayload.siteId || "",
