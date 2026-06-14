@@ -458,13 +458,38 @@ function buildEngineerOptions(data, partnerName) {
     .filter((engineer) => engineer.name);
 }
 
+function stripPartnerPasswordFieldsForSessionAction(payload) {
+  const action = String(payload?.action || "");
+  const sessionOnlyActions = new Set([
+    "assignEngineer",
+    "completeJob",
+    "addHistory",
+  ]);
+
+  if (!sessionOnlyActions.has(action)) return payload;
+
+  const sessionToken = String(payload?.sessionToken || "").trim();
+  if (!sessionToken) return payload;
+
+  const {
+    password,
+    currentPassword,
+    authPassword,
+    userPassword,
+    ...rest
+  } = payload;
+
+  return { ...rest, sessionToken };
+}
+
 async function apiPost(payload) {
+  const requestPayload = stripPartnerPasswordFieldsForSessionAction(payload);
   const response = await fetch(WEBAPP_URL, {
     method: "POST",
     headers: {
       "Content-Type": "text/plain;charset=utf-8",
     },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(requestPayload),
   });
 
   const text = await response.text();
@@ -472,7 +497,7 @@ async function apiPost(payload) {
   try {
     const data = JSON.parse(text);
     if (data?.success === false) {
-      console.warn("[partner-api] failed", { action: payload?.action || "", code: data.code || "", message: data.message || "" });
+      console.warn("[partner-api] failed", { action: requestPayload?.action || "", code: data.code || "", message: data.message || "" });
       if (data?.code === "SESSION_EXPIRED") {
         clearPartnerSession();
       }
@@ -1218,7 +1243,11 @@ export default function PartnerInstallerPortal() {
     const nextEngineerPhone = selectedEngineer?.phone || job.engineerPhone || "";
     const assignedPatch = {
       engineer,
+      installer: engineer,
+      assignedEngineer: engineer,
+      engineerName: engineer,
       engineerPhone: nextEngineerPhone,
+      installerPhone: nextEngineerPhone,
       status: "시공계획확정",
     };
 
@@ -3052,6 +3081,11 @@ function Info({ label, value }) {
 
 function JobDetailModal({ job, user, onClose, onUpload, onHistory, onAssign, engineerOptions = [], assigning = false, completing = false, actionMessage = "", onComplete, onCopyAddress, addressCopied = false, onPhotoView }) {
   const [engineer, setInstaller] = useState(isUnassignedEngineerValue(job.engineer) ? "" : job.engineer || "");
+
+  useEffect(() => {
+    setInstaller(isUnassignedEngineerValue(job.engineer) ? "" : job.engineer || "");
+  }, [job.engineer, job.rowNumber, job.month]);
+
   const engineerNames = engineerOptions.map((item) => item.name);
   const isComplete = job.status === "시공완료";
   const locked = isJobLocked(job);
