@@ -839,7 +839,7 @@ export default function PartnerInstallerPortal() {
       const authPassword = options.authPassword || loginUser.authPassword || partnerAuthPassword || "";
       const result = await apiPost({
         action: "getPartnerJobs",
-        ...partnerAuthPayload(loginUser, authPassword),
+        ...partnerSessionPreferredAuthPayload(loginUser, authPassword),
         role: loginUser.role,
         partnerName: loginUser.partnerName,
         engineerName: loginUser.engineerName || "",
