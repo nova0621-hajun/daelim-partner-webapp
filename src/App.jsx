@@ -624,7 +624,7 @@ export default function PartnerInstallerPortal() {
       try {
         const result = await apiPost({
           action: "getPhotoMetaCounts",
-          ...partnerAuthPayload(user, partnerAuthPassword || user.authPassword || ""),
+          ...partnerSessionPreferredAuthPayload(user, partnerAuthPassword || user.authPassword || ""),
           ...buildPhotoJobPayload(detailJob, detailJob.month),
         });
 
@@ -1416,7 +1416,7 @@ export default function PartnerInstallerPortal() {
     }
   };
 
-  const buildPhotoAuthPayload = () => partnerAuthPayload(user, partnerAuthPassword || user?.authPassword || "");
+  const buildPhotoAuthPayload = () => partnerSessionPreferredAuthPayload(user, partnerAuthPassword || user?.authPassword || "");
 
   useEffect(() => {
     if (!user) return;
