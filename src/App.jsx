@@ -506,6 +506,7 @@ function stripPartnerPasswordFieldsForSessionAction(payload) {
     "assignEngineer",
     "completeJob",
     "addHistory",
+    "requestPartnerEngineerAccount",
   ]);
 
   if (!sessionOnlyActions.has(action)) return payload;
@@ -1203,7 +1204,7 @@ export default function PartnerInstallerPortal() {
       setEngineerRequestLoading(true);
       const result = await apiPost({
         action: "requestPartnerEngineerAccount",
-        ...partnerAuthPayload(user, partnerAuthPassword),
+        ...partnerSessionPreferredAuthPayload(user, partnerAuthPassword || user.authPassword || ""),
         engineerName,
         phone,
       });
