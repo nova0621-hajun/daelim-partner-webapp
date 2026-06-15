@@ -685,6 +685,15 @@ export default function PartnerInstallerPortal() {
 
   useEffect(() => {
     if (!detailJob?.month || !detailJob?.rowNumber || !user) return;
+    const hasPhotoCounts = detailJob.photoCounts && Object.keys(detailJob.photoCounts || {}).length > 0;
+    if (isPhotoCountLoaded(detailJob) || hasPhotoCounts) {
+      console.info("[partner-photo-count] detail prefetch skipped", {
+        month: detailJob.month,
+        rowNumber: detailJob.rowNumber,
+        reason: isPhotoCountLoaded(detailJob) ? "photoCountsLoaded" : "jobPhotoCounts",
+      });
+      return;
+    }
 
     let ignore = false;
 
@@ -714,7 +723,7 @@ export default function PartnerInstallerPortal() {
     return () => {
       ignore = true;
     };
-  }, [detailJob?.month, detailJob?.rowNumber, user, partnerAuthPassword]);
+  }, [detailJob?.month, detailJob?.rowNumber, detailJob?.photoCountsLoaded, user, partnerAuthPassword]);
 
   const visibleJobs = useMemo(() => {
     if (!user) return [];
