@@ -328,6 +328,48 @@ function toDateKey(date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
+function normalizeJobDateRange(job) {
+  const start = parseJobDate(job?.installDate);
+  if (!start) return { start: null, end: null };
+
+  start.setHours(0, 0, 0, 0);
+
+  const rawEnd = parseJobDate(job?.endDate) || start;
+  rawEnd.setHours(0, 0, 0, 0);
+
+  return {
+    start,
+    end: rawEnd < start ? start : rawEnd,
+  };
+}
+
+function isDateWithinJobPeriod(job, dateKey) {
+  const selected = parseJobDate(dateKey);
+  if (!selected) return false;
+
+  selected.setHours(0, 0, 0, 0);
+
+  const { start, end } = normalizeJobDateRange(job);
+  if (!start) return false;
+
+  return selected >= start && selected <= end;
+}
+
+function getJobPeriodDateKeys(job) {
+  const { start, end } = normalizeJobDateRange(job);
+  if (!start) return [];
+
+  const keys = [];
+  const cursor = new Date(start);
+
+  while (cursor <= end) {
+    keys.push(toDateKey(cursor));
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  return keys;
+}
+
 function sortJobsByInstallDateDesc(rows) {
   return [...rows].sort((a, b) => {
     const ad = parseJobDate(a.installDate);
@@ -733,10 +775,7 @@ export default function PartnerInstallerPortal() {
       ? monthVisibleJobs.filter((job) => String(job.engineer || "미배정").trim() === selectedEngineerFilter)
       : monthVisibleJobs;
     const calendarScoped = selectedCalendarDate
-      ? engineerScoped.filter((job) => {
-        const date = parseJobDate(job.installDate);
-        return date && toDateKey(date) === selectedCalendarDate;
-      })
+      ? engineerScoped.filter((job) => isDateWithinJobPeriod(job, selectedCalendarDate))
       : engineerScoped;
 
     const dashboardScoped = user?.role === "engineer"
@@ -2591,7 +2630,7 @@ function MonthlyConstructionCalendar({ jobs = [], selectedMonth = "", selectedDa
   const calendarData = useMemo(() => {
     const canHighlightUnassigned = userRole === "partner";
     const jobMonth = jobs
-      .map((job) => parseJobDate(job.installDate))
+      .map((job) => normalizeJobDateRange(job).start)
       .find(Boolean);
     const selectedMatch = /^(\d{2})\.(\d{2})$/.exec(String(selectedMonth || ""));
     const today = new Date();
@@ -2606,14 +2645,15 @@ function MonthlyConstructionCalendar({ jobs = [], selectedMonth = "", selectedDa
 
     const jobMap = new Map();
     jobs.forEach((job) => {
-      const date = parseJobDate(job.installDate);
-      if (!date) return;
-      if (date.getFullYear() !== year || date.getMonth() !== monthIndex) return;
+      getJobPeriodDateKeys(job).forEach((key) => {
+        const date = parseJobDate(key);
+        if (!date) return;
+        if (date.getFullYear() !== year || date.getMonth() !== monthIndex) return;
 
-      const key = toDateKey(date);
-      const rows = jobMap.get(key) || [];
-      rows.push(job);
-      jobMap.set(key, rows);
+        const rows = jobMap.get(key) || [];
+        rows.push(job);
+        jobMap.set(key, rows);
+      });
     });
 
     const cells = Array.from({ length: 42 }, (_, index) => {
