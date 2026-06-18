@@ -428,6 +428,19 @@ function isJobLocked(job) {
   return job.editLocked === true || job.locked === true || lockValue === "Y" || lockValue === "TRUE";
 }
 
+function activeCompanions(job) {
+  if (!Array.isArray(job?.companions)) return [];
+
+  return job.companions.filter((companion) => (
+    companion &&
+    String(companion.status || "").trim().toLowerCase() === "active"
+  ));
+}
+
+function normalizeEngineerName(value) {
+  return String(value || "").trim();
+}
+
 function countPhotosByCategory(photos = []) {
   const counts = {};
   PHOTO_CATEGORY_OPTIONS.forEach((category) => {
@@ -667,6 +680,7 @@ export default function PartnerInstallerPortal() {
   const [completingJobId, setCompletingJobId] = useState("");
   const [historySavingJobId, setHistorySavingJobId] = useState("");
   const [uploadingJobId, setUploadingJobId] = useState("");
+  const [companionSavingJobId, setCompanionSavingJobId] = useState("");
   const [uploadProgress, setUploadProgress] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const [actionMessage, setActionMessage] = useState("");
@@ -1296,6 +1310,19 @@ export default function PartnerInstallerPortal() {
     }, delay);
   };
 
+  const refreshJobMonthNow = async (job) => {
+    if (!user || !job) return;
+    const targetMonth = job.month || job.sheet || "";
+    const rows = await fetchPartnerJobs(user, { month: targetMonth, silent: true, throwOnError: true });
+
+    setJobs((current) => [
+      ...current.filter((item) => String(item.month || item.sheet || "").trim() !== targetMonth),
+      ...rows,
+    ]);
+    setDetailJob((current) => current ? rows.find((row) => jobKey(row) === jobKey(current)) || current : current);
+    setHistoryJob((current) => current ? rows.find((row) => jobKey(row) === jobKey(current)) || current : current);
+  };
+
   const assignInstaller = async (job, engineer) => {
     if (!job || !engineer || !user) return;
 
@@ -1357,6 +1384,94 @@ export default function PartnerInstallerPortal() {
       }
     } finally {
       setAssigningJobId("");
+    }
+  };
+
+  const addCompanionEngineer = async (job, engineerName) => {
+    if (!job || !engineerName || !user || user.role !== "partner") return;
+
+    const normalizedEngineerName = normalizeEngineerName(engineerName);
+    const mainEngineerName = normalizeEngineerName(job.engineer);
+    const companions = activeCompanions(job);
+
+    if (normalizedEngineerName === mainEngineerName) {
+      setActionMessage("메인기사는 동행기사로 추가할 수 없습니다.");
+      return;
+    }
+
+    if (companions.some((companion) => normalizeEngineerName(companion.engineerName) === normalizedEngineerName)) {
+      setActionMessage("이미 등록된 동행기사입니다.");
+      return;
+    }
+
+    const selectedEngineer = engineerOptions.find((item) => item.name === normalizedEngineerName);
+    const photoPayload = buildPhotoJobPayload(job, job.month || job.sheet || "");
+    const key = jobKey(job);
+
+    setCompanionSavingJobId(key);
+    setActionMessage("");
+
+    try {
+      const result = await apiPost({
+        action: "addCompanionEngineer",
+        ...partnerSessionPreferredAuthPayload(user, partnerAuthPassword || user.authPassword || ""),
+        month: job.month || job.sheet || "",
+        siteId: photoPayload.siteId || "",
+        orderNo: photoPayload.orderNo || "",
+        engineerName: normalizedEngineerName,
+        engineerPhone: selectedEngineer?.phone || "",
+      });
+
+      if (!result.success) {
+        setActionMessage(result.message || "동행기사 추가에 실패했습니다.");
+        return;
+      }
+
+      setActionMessage("동행기사를 추가했습니다.");
+      await refreshJobMonthNow(job);
+    } catch (err) {
+      console.error(err);
+      setActionMessage(err.message || "동행기사 추가 API 연결 실패");
+    } finally {
+      setCompanionSavingJobId("");
+    }
+  };
+
+  const removeCompanionEngineer = async (job, companion) => {
+    if (!job || !companion || !user || user.role !== "partner") return;
+
+    if (!window.confirm("이 동행기사를 해제하시겠습니까?")) return;
+
+    const photoPayload = buildPhotoJobPayload(job, job.month || job.sheet || "");
+    const key = jobKey(job);
+
+    setCompanionSavingJobId(key);
+    setActionMessage("");
+
+    try {
+      const result = await apiPost({
+        action: "removeCompanionEngineer",
+        ...partnerSessionPreferredAuthPayload(user, partnerAuthPassword || user.authPassword || ""),
+        companionId: companion.companionId || "",
+        month: job.month || job.sheet || "",
+        siteId: photoPayload.siteId || "",
+        orderNo: photoPayload.orderNo || "",
+        engineerName: companion.engineerName || "",
+        removedReason: "",
+      });
+
+      if (!result.success) {
+        setActionMessage(result.message || "동행기사 해제에 실패했습니다.");
+        return;
+      }
+
+      setActionMessage("동행기사를 해제했습니다.");
+      await refreshJobMonthNow(job);
+    } catch (err) {
+      console.error(err);
+      setActionMessage(err.message || "동행기사 해제 API 연결 실패");
+    } finally {
+      setCompanionSavingJobId("");
     }
   };
 
@@ -2361,8 +2476,11 @@ export default function PartnerInstallerPortal() {
             setDetailJob(null);
           }}
           onAssign={assignInstaller}
+          onAddCompanion={addCompanionEngineer}
+          onRemoveCompanion={removeCompanionEngineer}
           engineerOptions={engineerOptions}
           assigning={assigningJobId === jobKey(detailJob)}
+          companionSaving={companionSavingJobId === jobKey(detailJob)}
           completing={completingJobId === jobKey(detailJob)}
           actionMessage={actionMessage}
           onComplete={completeJob}
@@ -3112,6 +3230,7 @@ function JobCard({ job, user, onDetail, onUpload, onHistory, onComplete, complet
   const locked = isJobLocked(job);
   const completePhotoReady = hasCompletionPhoto(job);
   const needsEngineer = user.role === "partner" && (isUnassignedEngineerValue(job.engineer) || job.status === "기사배정요청");
+  const companions = activeCompanions(job);
 
   return (
     <article className="rounded-3xl border bg-white p-3 shadow-sm md:p-4">
@@ -3135,6 +3254,16 @@ function JobCard({ job, user, onDetail, onUpload, onHistory, onComplete, complet
         <Info label="기사" value={isUnassignedEngineerValue(job.engineer) ? "미배정" : job.engineer} />
         {user.role === "partner" ? <Info label="지급시공비" value={formatMoney(partnerPaymentAmount(job))} /> : null}
       </div>
+
+      {companions.length ? (
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {companions.map((companion) => (
+            <Badge key={companion.companionId || `${companion.engineerName}-${companion.engineerPhone}`} className="border-violet-200 bg-violet-50 text-violet-700">
+              동행 {companion.engineerName}
+            </Badge>
+          ))}
+        </div>
+      ) : null}
 
       <div className="mt-3 grid grid-cols-2 gap-2 md:mt-4 md:grid-cols-4">
         <button onClick={onDetail} className="rounded-2xl bg-slate-900 px-3 py-3 text-xs font-black text-white">상세보기</button>
@@ -3165,11 +3294,13 @@ function Info({ label, value }) {
   return <div><p className="text-[11px] font-black text-slate-400">{label}</p><p className="mt-1 font-black text-slate-700">{value || "-"}</p></div>;
 }
 
-function JobDetailModal({ job, user, onClose, onUpload, onHistory, onAssign, engineerOptions = [], assigning = false, completing = false, actionMessage = "", onComplete, onCopyAddress, addressCopied = false, onPhotoView }) {
+function JobDetailModal({ job, user, onClose, onUpload, onHistory, onAssign, onAddCompanion, onRemoveCompanion, engineerOptions = [], assigning = false, companionSaving = false, completing = false, actionMessage = "", onComplete, onCopyAddress, addressCopied = false, onPhotoView }) {
   const [engineer, setInstaller] = useState(isUnassignedEngineerValue(job.engineer) ? "" : job.engineer || "");
+  const [companionEngineer, setCompanionEngineer] = useState("");
 
   useEffect(() => {
     setInstaller(isUnassignedEngineerValue(job.engineer) ? "" : job.engineer || "");
+    setCompanionEngineer("");
   }, [job.engineer, job.rowNumber, job.month]);
 
   const engineerNames = engineerOptions.map((item) => item.name);
@@ -3177,6 +3308,15 @@ function JobDetailModal({ job, user, onClose, onUpload, onHistory, onAssign, eng
   const locked = isJobLocked(job);
   const completePhotoReady = hasCompletionPhoto(job);
   const canAssignEngineer = user.role === "partner";
+  const companions = activeCompanions(job);
+  const companionNames = companions.map((companion) => normalizeEngineerName(companion.engineerName));
+  const mainEngineerName = normalizeEngineerName(job.engineer);
+  const companionOptions = engineerOptions.filter((item) => {
+    const name = normalizeEngineerName(item.name);
+    if (!name) return false;
+    if (name === mainEngineerName) return false;
+    return !companionNames.includes(name);
+  });
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 md:items-center md:p-4">
@@ -3234,6 +3374,60 @@ function JobDetailModal({ job, user, onClose, onUpload, onHistory, onAssign, eng
             {user.role === "partner" && job.extraPaymentMemo ? <DetailRow label="지급 추가비용 내용" value={job.extraPaymentMemo} /> : null}
           </DetailBox>
         </div>
+
+        <DetailBox title="동행기사" className="mt-4">
+          {companions.length ? (
+            <div className="space-y-2">
+              {companions.map((companion) => (
+                <div key={companion.companionId || `${companion.engineerName}-${companion.engineerPhone}`} className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-violet-100 bg-violet-50 px-3 py-2">
+                  <div className="min-w-0">
+                    <p className="font-black text-violet-900">{companion.engineerName}</p>
+                    <p className="text-xs font-bold text-violet-600"><PhoneLink value={companion.engineerPhone} /></p>
+                  </div>
+                  {user.role === "partner" ? (
+                    <button
+                      type="button"
+                      onClick={() => onRemoveCompanion?.(job, companion)}
+                      disabled={locked || companionSaving}
+                      className="rounded-xl border border-violet-200 bg-white px-3 py-2 text-xs font-black text-violet-700 disabled:opacity-50"
+                    >
+                      {companionSaving ? "처리중" : "해제"}
+                    </button>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="rounded-2xl bg-slate-50 px-3 py-3 text-sm font-bold text-slate-500">동행기사 없음</p>
+          )}
+
+          {user.role === "partner" ? (
+            <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
+              <select
+                value={companionEngineer}
+                onChange={(e) => setCompanionEngineer(e.target.value)}
+                disabled={locked || companionSaving}
+                className="rounded-2xl border bg-white px-3 py-3 text-sm font-bold disabled:opacity-60"
+              >
+                <option value="">동행기사 선택</option>
+                {companionOptions.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}
+              </select>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!companionEngineer) return;
+                  onAddCompanion?.(job, companionEngineer);
+                  setCompanionEngineer("");
+                }}
+                disabled={locked || companionSaving || !companionEngineer}
+                className="flex items-center justify-center gap-2 rounded-2xl bg-violet-600 px-4 py-3 text-sm font-black text-white disabled:bg-violet-300"
+              >
+                {companionSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                {companionSaving ? "처리중" : "동행기사 추가"}
+              </button>
+            </div>
+          ) : null}
+        </DetailBox>
 
         {canAssignEngineer ? (
           <div className="mt-4 rounded-3xl border border-blue-100 bg-blue-50 p-4">
