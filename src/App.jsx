@@ -1415,26 +1415,27 @@ export default function PartnerInstallerPortal() {
     setActionMessage("");
 
     try {
-      const failures = [];
+      const result = await apiPost({
+        action: "bulkAddCompanionEngineers",
+        ...partnerSessionPreferredAuthPayload(user, partnerAuthPassword || user.authPassword || ""),
+        month: job.month || job.sheet || "",
+        siteId: photoPayload.siteId || "",
+        orderNo: photoPayload.orderNo || "",
+        companions: normalizedEngineerNames.map((normalizedEngineerName) => {
+          const selectedEngineer = engineerOptions.find((item) => normalizeEngineerName(item.name) === normalizedEngineerName);
+          return {
+            engineerName: normalizedEngineerName,
+            engineerPhone: selectedEngineer?.phone || "",
+          };
+        }),
+      });
 
-      for (const normalizedEngineerName of normalizedEngineerNames) {
-        const selectedEngineer = engineerOptions.find((item) => normalizeEngineerName(item.name) === normalizedEngineerName);
-        const result = await apiPost({
-          action: "addCompanionEngineer",
-          ...partnerSessionPreferredAuthPayload(user, partnerAuthPassword || user.authPassword || ""),
-          month: job.month || job.sheet || "",
-          siteId: photoPayload.siteId || "",
-          orderNo: photoPayload.orderNo || "",
-          engineerName: normalizedEngineerName,
-          engineerPhone: selectedEngineer?.phone || "",
-        });
-
-        if (!result.success) {
-          failures.push(result.message || normalizedEngineerName);
-        }
+      if (!result.success) {
+        setActionMessage(result.message || "동행기사 추가에 실패했습니다.");
+        return;
       }
 
-      setActionMessage(failures.length ? "일부 동행기사 처리에 실패했습니다." : "동행기사를 추가했습니다.");
+      setActionMessage(result.partialFailure || Number(result.failedCount || 0) > 0 ? "일부 동행기사 처리에 실패했습니다." : "동행기사를 추가했습니다.");
       await refreshJobMonthNow(job);
     } catch (err) {
       console.error(err);
@@ -1457,26 +1458,25 @@ export default function PartnerInstallerPortal() {
     setActionMessage("");
 
     try {
-      const failures = [];
-
-      for (const companion of targets) {
-        const result = await apiPost({
-          action: "removeCompanionEngineer",
-          ...partnerSessionPreferredAuthPayload(user, partnerAuthPassword || user.authPassword || ""),
+      const result = await apiPost({
+        action: "bulkRemoveCompanionEngineers",
+        ...partnerSessionPreferredAuthPayload(user, partnerAuthPassword || user.authPassword || ""),
+        month: job.month || job.sheet || "",
+        siteId: photoPayload.siteId || "",
+        orderNo: photoPayload.orderNo || "",
+        companions: targets.map((companion) => ({
           companionId: companion.companionId || "",
-          month: job.month || job.sheet || "",
-          siteId: photoPayload.siteId || "",
-          orderNo: photoPayload.orderNo || "",
           engineerName: companion.engineerName || "",
-          removedReason: "",
-        });
+        })),
+        removedReason: "",
+      });
 
-        if (!result.success) {
-          failures.push(result.message || companion.engineerName || companion.companionId || "unknown");
-        }
+      if (!result.success) {
+        setActionMessage(result.message || "동행기사 해제에 실패했습니다.");
+        return;
       }
 
-      setActionMessage(failures.length ? "일부 동행기사 처리에 실패했습니다." : "동행기사를 해제했습니다.");
+      setActionMessage(result.partialFailure || Number(result.failedCount || 0) > 0 ? "일부 동행기사 처리에 실패했습니다." : "동행기사를 해제했습니다.");
       await refreshJobMonthNow(job);
     } catch (err) {
       console.error(err);
