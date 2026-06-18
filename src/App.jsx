@@ -1387,24 +1387,27 @@ export default function PartnerInstallerPortal() {
     }
   };
 
-  const addCompanionEngineer = async (job, engineerName) => {
-    if (!job || !engineerName || !user || user.role !== "partner") return;
+  const addCompanionEngineer = async (job, engineerNames) => {
+    const targetNames = Array.isArray(engineerNames) ? engineerNames : [engineerNames];
+    if (!job || !targetNames.length || !user || user.role !== "partner") return;
 
-    const normalizedEngineerName = normalizeEngineerName(engineerName);
+    const normalizedEngineerNames = targetNames.map(normalizeEngineerName).filter(Boolean);
+    if (!normalizedEngineerNames.length) return;
+
     const mainEngineerName = normalizeEngineerName(job.engineer);
     const companions = activeCompanions(job);
+    const companionNames = companions.map((companion) => normalizeEngineerName(companion.engineerName));
 
-    if (normalizedEngineerName === mainEngineerName) {
+    if (normalizedEngineerNames.some((name) => name === mainEngineerName)) {
       setActionMessage("메인기사는 동행기사로 추가할 수 없습니다.");
       return;
     }
 
-    if (companions.some((companion) => normalizeEngineerName(companion.engineerName) === normalizedEngineerName)) {
+    if (normalizedEngineerNames.some((name) => companionNames.includes(name))) {
       setActionMessage("이미 등록된 동행기사입니다.");
       return;
     }
 
-    const selectedEngineer = engineerOptions.find((item) => item.name === normalizedEngineerName);
     const photoPayload = buildPhotoJobPayload(job, job.month || job.sheet || "");
     const key = jobKey(job);
 
@@ -1412,22 +1415,26 @@ export default function PartnerInstallerPortal() {
     setActionMessage("");
 
     try {
-      const result = await apiPost({
-        action: "addCompanionEngineer",
-        ...partnerSessionPreferredAuthPayload(user, partnerAuthPassword || user.authPassword || ""),
-        month: job.month || job.sheet || "",
-        siteId: photoPayload.siteId || "",
-        orderNo: photoPayload.orderNo || "",
-        engineerName: normalizedEngineerName,
-        engineerPhone: selectedEngineer?.phone || "",
-      });
+      const failures = [];
 
-      if (!result.success) {
-        setActionMessage(result.message || "동행기사 추가에 실패했습니다.");
-        return;
+      for (const normalizedEngineerName of normalizedEngineerNames) {
+        const selectedEngineer = engineerOptions.find((item) => normalizeEngineerName(item.name) === normalizedEngineerName);
+        const result = await apiPost({
+          action: "addCompanionEngineer",
+          ...partnerSessionPreferredAuthPayload(user, partnerAuthPassword || user.authPassword || ""),
+          month: job.month || job.sheet || "",
+          siteId: photoPayload.siteId || "",
+          orderNo: photoPayload.orderNo || "",
+          engineerName: normalizedEngineerName,
+          engineerPhone: selectedEngineer?.phone || "",
+        });
+
+        if (!result.success) {
+          failures.push(result.message || normalizedEngineerName);
+        }
       }
 
-      setActionMessage("동행기사를 추가했습니다.");
+      setActionMessage(failures.length ? "일부 동행기사 처리에 실패했습니다." : "동행기사를 추가했습니다.");
       await refreshJobMonthNow(job);
     } catch (err) {
       console.error(err);
@@ -1437,10 +1444,11 @@ export default function PartnerInstallerPortal() {
     }
   };
 
-  const removeCompanionEngineer = async (job, companion) => {
-    if (!job || !companion || !user || user.role !== "partner") return;
+  const removeCompanionEngineer = async (job, companionsToRemove) => {
+    const targets = Array.isArray(companionsToRemove) ? companionsToRemove : [companionsToRemove];
+    if (!job || !targets.length || !user || user.role !== "partner") return;
 
-    if (!window.confirm("이 동행기사를 해제하시겠습니까?")) return;
+    if (!window.confirm("선택한 동행기사를 해제하시겠습니까?")) return;
 
     const photoPayload = buildPhotoJobPayload(job, job.month || job.sheet || "");
     const key = jobKey(job);
@@ -1449,23 +1457,26 @@ export default function PartnerInstallerPortal() {
     setActionMessage("");
 
     try {
-      const result = await apiPost({
-        action: "removeCompanionEngineer",
-        ...partnerSessionPreferredAuthPayload(user, partnerAuthPassword || user.authPassword || ""),
-        companionId: companion.companionId || "",
-        month: job.month || job.sheet || "",
-        siteId: photoPayload.siteId || "",
-        orderNo: photoPayload.orderNo || "",
-        engineerName: companion.engineerName || "",
-        removedReason: "",
-      });
+      const failures = [];
 
-      if (!result.success) {
-        setActionMessage(result.message || "동행기사 해제에 실패했습니다.");
-        return;
+      for (const companion of targets) {
+        const result = await apiPost({
+          action: "removeCompanionEngineer",
+          ...partnerSessionPreferredAuthPayload(user, partnerAuthPassword || user.authPassword || ""),
+          companionId: companion.companionId || "",
+          month: job.month || job.sheet || "",
+          siteId: photoPayload.siteId || "",
+          orderNo: photoPayload.orderNo || "",
+          engineerName: companion.engineerName || "",
+          removedReason: "",
+        });
+
+        if (!result.success) {
+          failures.push(result.message || companion.engineerName || companion.companionId || "unknown");
+        }
       }
 
-      setActionMessage("동행기사를 해제했습니다.");
+      setActionMessage(failures.length ? "일부 동행기사 처리에 실패했습니다." : "동행기사를 해제했습니다.");
       await refreshJobMonthNow(job);
     } catch (err) {
       console.error(err);
@@ -1474,7 +1485,6 @@ export default function PartnerInstallerPortal() {
       setCompanionSavingJobId("");
     }
   };
-
   const getLatestCompletionPhotoCount = async (job) => {
     if (!job || !user) return 0;
 
@@ -3296,11 +3306,13 @@ function Info({ label, value }) {
 
 function JobDetailModal({ job, user, onClose, onUpload, onHistory, onAssign, onAddCompanion, onRemoveCompanion, engineerOptions = [], assigning = false, companionSaving = false, completing = false, actionMessage = "", onComplete, onCopyAddress, addressCopied = false, onPhotoView }) {
   const [engineer, setInstaller] = useState(isUnassignedEngineerValue(job.engineer) ? "" : job.engineer || "");
-  const [companionEngineer, setCompanionEngineer] = useState("");
+  const [selectedCompanionEngineers, setSelectedCompanionEngineers] = useState([]);
+  const [selectedRemoveCompanionIds, setSelectedRemoveCompanionIds] = useState([]);
 
   useEffect(() => {
     setInstaller(isUnassignedEngineerValue(job.engineer) ? "" : job.engineer || "");
-    setCompanionEngineer("");
+    setSelectedCompanionEngineers([]);
+    setSelectedRemoveCompanionIds([]);
   }, [job.engineer, job.rowNumber, job.month]);
 
   const engineerNames = engineerOptions.map((item) => item.name);
@@ -3317,6 +3329,26 @@ function JobDetailModal({ job, user, onClose, onUpload, onHistory, onAssign, onA
     if (name === mainEngineerName) return false;
     return !companionNames.includes(name);
   });
+  const toggleCompanionEngineer = (name) => {
+    const normalizedName = normalizeEngineerName(name);
+    if (!normalizedName) return;
+    setSelectedCompanionEngineers((current) => (
+      current.includes(normalizedName)
+        ? current.filter((item) => item !== normalizedName)
+        : [...current, normalizedName]
+    ));
+  };
+  const companionKey = (companion) => companion.companionId || `${companion.engineerName || ""}-${companion.engineerPhone || ""}`;
+  const toggleRemoveCompanion = (companion) => {
+    const key = companionKey(companion);
+    if (!key) return;
+    setSelectedRemoveCompanionIds((current) => (
+      current.includes(key)
+        ? current.filter((item) => item !== key)
+        : [...current, key]
+    ));
+  };
+  const selectedRemoveCompanions = companions.filter((companion) => selectedRemoveCompanionIds.includes(companionKey(companion)));
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 md:items-center md:p-4">
@@ -3394,58 +3426,96 @@ function JobDetailModal({ job, user, onClose, onUpload, onHistory, onAssign, onA
         <DetailBox title="동행기사" className="mt-4">
           {companions.length ? (
             <div className="space-y-2">
-              {companions.map((companion) => (
-                <div key={companion.companionId || `${companion.engineerName}-${companion.engineerPhone}`} className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-violet-100 bg-violet-50 px-3 py-2">
-                  <div className="min-w-0">
-                    <p className="font-black text-violet-900">{companion.engineerName}</p>
-                    <p className="text-xs font-bold text-violet-600"><PhoneLink value={companion.engineerPhone} /></p>
-                  </div>
-                  {user.role === "partner" ? (
-                    <button
-                      type="button"
-                      onClick={() => onRemoveCompanion?.(job, companion)}
-                      disabled={locked || companionSaving}
-                      className="rounded-xl border border-violet-200 bg-white px-3 py-2 text-xs font-black text-violet-700 disabled:opacity-50"
-                    >
-                      {companionSaving ? "처리중" : "해제"}
-                    </button>
-                  ) : null}
-                </div>
-              ))}
+              {companions.map((companion) => {
+                const key = companionKey(companion);
+                const checked = selectedRemoveCompanionIds.includes(key);
+
+                return (
+                  <label key={key} className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-violet-100 bg-violet-50 px-3 py-2">
+                    <span className="flex min-w-0 flex-1 items-center gap-3">
+                      {user.role === "partner" ? (
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleRemoveCompanion(companion)}
+                          disabled={locked || companionSaving}
+                          className="h-4 w-4 rounded border-violet-300 text-violet-600"
+                        />
+                      ) : null}
+                      <span className="min-w-0">
+                        <span className="block font-black text-violet-900">{companion.engineerName}</span>
+                        <span className="block text-xs font-bold text-violet-600"><PhoneLink value={companion.engineerPhone} /></span>
+                      </span>
+                    </span>
+                  </label>
+                );
+              })}
             </div>
           ) : (
             <p className="rounded-2xl bg-slate-50 px-3 py-3 text-sm font-bold text-slate-500">동행기사 없음</p>
           )}
 
           {user.role === "partner" ? (
-            <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
-              <select
-                value={companionEngineer}
-                onChange={(e) => setCompanionEngineer(e.target.value)}
-                disabled={locked || companionSaving}
-                className="rounded-2xl border bg-white px-3 py-3 text-sm font-bold disabled:opacity-60"
-              >
-                <option value="">동행기사 선택</option>
-                {companionOptions.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}
-              </select>
-              <button
-                type="button"
-                onClick={() => {
-                  if (!companionEngineer) return;
-                  onAddCompanion?.(job, companionEngineer);
-                  setCompanionEngineer("");
-                }}
-                disabled={locked || companionSaving || !companionEngineer}
-                className="flex items-center justify-center gap-2 rounded-2xl bg-violet-600 px-4 py-3 text-sm font-black text-white disabled:bg-violet-300"
-              >
-                {companionSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                {companionSaving ? "처리중" : "동행기사 추가"}
-              </button>
+            <div className="mt-3 space-y-3">
+              {companions.length ? (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!selectedRemoveCompanions.length) return;
+                    await onRemoveCompanion?.(job, selectedRemoveCompanions);
+                    setSelectedRemoveCompanionIds([]);
+                  }}
+                  disabled={locked || companionSaving || !selectedRemoveCompanions.length}
+                  className="flex w-full items-center justify-center gap-2 rounded-2xl border border-violet-200 bg-white px-4 py-3 text-sm font-black text-violet-700 disabled:opacity-50"
+                >
+                  {companionSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  {companionSaving ? "처리중" : "선택한 동행기사 해제"}
+                </button>
+              ) : null}
+
+              <div className="rounded-2xl border border-violet-100 bg-white p-3">
+                <p className="text-xs font-black text-violet-700">동행기사 추가</p>
+                {companionOptions.length ? (
+                  <div className="mt-2 grid gap-2">
+                    {companionOptions.map((item) => {
+                      const name = normalizeEngineerName(item.name);
+                      const checked = selectedCompanionEngineers.includes(name);
+
+                      return (
+                        <label key={name} className="flex items-center gap-3 rounded-xl bg-violet-50 px-3 py-2 text-sm font-bold text-violet-900">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleCompanionEngineer(name)}
+                            disabled={locked || companionSaving}
+                            className="h-4 w-4 rounded border-violet-300 text-violet-600"
+                          />
+                          <span className="min-w-0 flex-1 truncate">{item.name}</span>
+                          {item.phone ? <span className="text-xs text-violet-500">{item.phone}</span> : null}
+                        </label>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="mt-2 rounded-xl bg-slate-50 px-3 py-2 text-sm font-bold text-slate-500">추가 가능한 동행기사가 없습니다.</p>
+                )}
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!selectedCompanionEngineers.length) return;
+                    await onAddCompanion?.(job, selectedCompanionEngineers);
+                    setSelectedCompanionEngineers([]);
+                  }}
+                  disabled={locked || companionSaving || !selectedCompanionEngineers.length}
+                  className="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl bg-violet-600 px-4 py-3 text-sm font-black text-white disabled:bg-violet-300"
+                >
+                  {companionSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  {companionSaving ? "처리중" : "선택한 동행기사 추가"}
+                </button>
+              </div>
             </div>
           ) : null}
         </DetailBox>
-
-
         <DetailBox title="현장 메모 / 중요 이력" className="mt-4">
           <div className="rounded-2xl bg-slate-50 p-4 text-sm font-medium leading-relaxed text-slate-700 whitespace-pre-wrap">{job.siteMemo || "메모 없음"}</div>
           <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-medium leading-relaxed text-amber-900 whitespace-pre-wrap">{job.history || "중요 이력 없음"}</div>
