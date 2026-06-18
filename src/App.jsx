@@ -3375,6 +3375,22 @@ function JobDetailModal({ job, user, onClose, onUpload, onHistory, onAssign, onA
           </DetailBox>
         </div>
 
+        {canAssignEngineer ? (
+          <div className="mt-4 rounded-3xl border border-blue-100 bg-blue-50 p-4">
+            <h3 className="font-black text-blue-900">시공기사 배정</h3>
+            <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
+              <select value={engineer} onChange={(e) => setInstaller(e.target.value)} disabled={locked || assigning} className="rounded-2xl border bg-white px-3 py-3 text-sm font-bold disabled:opacity-60">
+                <option value="">시공기사 선택</option>
+                {engineerNames.map((name) => <option key={name} value={name}>{name}</option>)}
+              </select>
+              <button onClick={() => engineer && onAssign(job, engineer)} disabled={locked || !engineer || assigning} className="flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-sm font-black text-white disabled:bg-blue-300">
+                {assigning ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                {locked ? "잠금" : assigning ? "저장 중" : "배정"}
+              </button>
+            </div>
+          </div>
+        ) : null}
+
         <DetailBox title="동행기사" className="mt-4">
           {companions.length ? (
             <div className="space-y-2">
@@ -3429,21 +3445,6 @@ function JobDetailModal({ job, user, onClose, onUpload, onHistory, onAssign, onA
           ) : null}
         </DetailBox>
 
-        {canAssignEngineer ? (
-          <div className="mt-4 rounded-3xl border border-blue-100 bg-blue-50 p-4">
-            <h3 className="font-black text-blue-900">시공기사 배정</h3>
-            <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
-              <select value={engineer} onChange={(e) => setInstaller(e.target.value)} disabled={locked || assigning} className="rounded-2xl border bg-white px-3 py-3 text-sm font-bold disabled:opacity-60">
-                <option value="">시공기사 선택</option>
-                {engineerNames.map((name) => <option key={name} value={name}>{name}</option>)}
-              </select>
-              <button onClick={() => engineer && onAssign(job, engineer)} disabled={locked || !engineer || assigning} className="flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-sm font-black text-white disabled:bg-blue-300">
-                {assigning ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                {locked ? "잠금" : assigning ? "저장 중" : "배정"}
-              </button>
-            </div>
-          </div>
-        ) : null}
 
         <DetailBox title="현장 메모 / 중요 이력" className="mt-4">
           <div className="rounded-2xl bg-slate-50 p-4 text-sm font-medium leading-relaxed text-slate-700 whitespace-pre-wrap">{job.siteMemo || "메모 없음"}</div>
