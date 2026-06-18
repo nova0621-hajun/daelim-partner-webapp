@@ -735,16 +735,24 @@ export default function PartnerInstallerPortal() {
   }, [jobs, user]);
 
   const monthOptions = useMemo(() => {
-    const months = availableMonths.length
+    const sourceMonths = availableMonths.length
       ? availableMonths
-      : Array.from(new Set(
-        visibleJobs
-          .map((job) => String(job.month || job.sheet || "").trim())
-          .filter(Boolean),
-      ));
+      : visibleJobs
+        .map((job) => String(job.month || job.sheet || "").trim())
+        .filter(Boolean);
+    const months = Array.from(new Set(sourceMonths));
 
-    return months.slice().sort((a, b) => b.localeCompare(a));
+    return months.slice().sort((a, b) => a.localeCompare(b));
   }, [availableMonths, visibleJobs]);
+
+  const loadedMonthCounts = useMemo(() => {
+    return visibleJobs.reduce((acc, job) => {
+      const month = String(job.month || job.sheet || "").trim();
+      if (!month) return acc;
+      acc[month] = (acc[month] || 0) + 1;
+      return acc;
+    }, {});
+  }, [visibleJobs]);
 
   useEffect(() => {
     if (selectedMonth === "all") return;
@@ -2176,6 +2184,7 @@ export default function PartnerInstallerPortal() {
           selectedMonth={selectedMonth}
           setSelectedMonth={setSelectedMonth}
           totalCount={visibleJobs.length}
+          jobCounts={loadedMonthCounts}
         />
         <MonthlyConstructionCalendar
           jobs={monthVisibleJobs}
@@ -2390,7 +2399,17 @@ function LoginForm({ id, password, setId, setPassword, message, loading = false,
           </div>
           <div>
             <FieldLabel>비밀번호</FieldLabel>
-            <input type="password" value={password} onKeyDown={submitOnEnter} onChange={(e) => setPassword(e.target.value)} disabled={loading} className="w-full rounded-2xl border px-4 py-3 text-base font-bold disabled:opacity-60" />
+            <input
+              type="password"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              autoComplete="current-password"
+              value={password}
+              onKeyDown={submitOnEnter}
+              onChange={(e) => setPassword(e.target.value)}
+              disabled={loading}
+              className="w-full rounded-2xl border px-4 py-3 text-base font-bold disabled:opacity-60"
+            />
           </div>
         </div>
 
@@ -2606,7 +2625,7 @@ function PortalHeader({
   );
 }
 
-function MonthFilter({ months, selectedMonth, setSelectedMonth, totalCount }) {
+function MonthFilter({ months, selectedMonth, setSelectedMonth, totalCount, jobCounts = {} }) {
   const options = [["all", "\uC804\uCCB4"], ...months.map((month) => [month, month])];
 
   return (
@@ -2621,16 +2640,20 @@ function MonthFilter({ months, selectedMonth, setSelectedMonth, totalCount }) {
         </Badge>
       </div>
       <div className="flex gap-2 overflow-x-auto pb-1">
-        {options.map(([value, label]) => (
-          <button
-            key={value}
-            type="button"
-            onClick={() => setSelectedMonth(value)}
-            className={`shrink-0 rounded-2xl px-4 py-2 text-xs font-black ${selectedMonth === value ? "bg-slate-900 text-white" : "border bg-white text-slate-600"}`}
-          >
-            {label}
-          </button>
-        ))}
+        {options.map(([value, label]) => {
+          const loadedCount = value !== "all" ? jobCounts[value] : null;
+          const displayLabel = loadedCount != null ? `${label} (${loadedCount}\uAC74)` : label;
+          return (
+            <button
+              key={value}
+              type="button"
+              onClick={() => setSelectedMonth(value)}
+              className={`shrink-0 rounded-2xl px-4 py-2 text-xs font-black ${selectedMonth === value ? "bg-slate-900 text-white" : "border bg-white text-slate-600"}`}
+            >
+              {displayLabel}
+            </button>
+          );
+        })}
       </div>
     </section>
   );
@@ -2886,7 +2909,7 @@ function PartnerPaymentDashboard({ jobs = [], stats, paymentTotal, selectedEngin
 
   const summaryCards = [
     ["\uC804\uCCB4 \uD604\uC7A5", stats.total, "today"],
-    ["\uC774\uBC88\uB2EC \uBC30\uC815 \uD604\uC7A5", stats.total, "today"],
+    ["\uC790\uC0AC \uBC30\uC815 \uD604\uC7A5", stats.total, "today"],
     ["\uC774\uBC88\uC8FC \uC2DC\uACF5 \uC608\uC815", stats.week, "today"],
     ["\uC2DC\uACF5\uC644\uB8CC", stats.complete, "complete"],
     ["\uC644\uB8CC\uC0AC\uC9C4 \uD544\uC694", stats.completePhotoMissing, "photo"],
