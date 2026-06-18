@@ -1404,6 +1404,10 @@ export default function PartnerInstallerPortal() {
     }
 
     const key = jobKey(job);
+    if (!window.confirm("\uC644\uB8CC\uBCF4\uACE0\uB97C \uC800\uC7A5\uD558\uC2DC\uACA0\uC2B5\uB2C8\uAE4C?")) {
+      return;
+    }
+
     const completePatch = { status: "시공완료" };
     setCompletingJobId(key);
     setActionMessage("");
