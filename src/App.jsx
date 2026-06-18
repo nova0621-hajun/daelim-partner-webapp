@@ -3350,64 +3350,17 @@ function JobDetailModal({ job, user, onClose, onUpload, onHistory, onAssign, onA
   };
   const selectedRemoveCompanions = companions.filter((companion) => selectedRemoveCompanionIds.includes(companionKey(companion)));
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 md:items-center md:p-4">
-      <div className="max-h-[94vh] w-full max-w-2xl overflow-y-auto rounded-t-[2rem] bg-white p-5 shadow-2xl md:rounded-[2rem]">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <h2 className="text-2xl font-black">{job.customer}</h2>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {locked ? <Badge className="border-rose-200 bg-rose-50 text-rose-700">관리자 잠금</Badge> : null}
-              <Badge className={STATUS_CLASS[job.status] || "border-slate-200 bg-slate-100 text-slate-600"}>{job.status}</Badge>
-              {user.role === "partner" && (isUnassignedEngineerValue(job.engineer) || job.status === "기사배정요청") ? (
-                <Badge className="border-amber-300 bg-amber-50 text-amber-700">시공기사 미배정</Badge>
-              ) : null}
-              {isRefinishingJob(job) ? <RefinishingBadge /> : <Badge className="border-slate-200 bg-slate-50 text-slate-600">{job.item}</Badge>}
-            </div>
-          </div>
-          <button onClick={onClose} className="rounded-2xl border p-2 text-slate-500"><X className="h-5 w-5" /></button>
-        </div>
 
-        <div className="mt-4 rounded-3xl bg-slate-50 p-4">
-          <div className="flex items-start gap-2">
-            <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
-            <p className="min-w-0 flex-1 text-sm font-bold leading-relaxed text-slate-700">{job.address}</p>
-          </div>
-          <button onClick={() => onCopyAddress(job)} className="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl border bg-white px-4 py-3 text-xs font-black text-slate-700">
-            <Copy className="h-4 w-4" /> {addressCopied ? "복사됨" : "주소복사"}
-          </button>
-        </div>
-
-        {locked || (!isComplete && !completePhotoReady) ? (
-          <div className={`mt-4 rounded-3xl border p-4 text-sm font-bold leading-relaxed ${locked ? "border-rose-200 bg-rose-50 text-rose-700" : "border-orange-200 bg-orange-50 text-orange-700"}`}>
-            {locked
-              ? "마스터가 잠금 처리한 현장입니다. 잠금 해제 전까지 사진등록, 이력등록, 완료보고, 시공기사 배정을 사용할 수 없습니다."
-              : "완료보고 전 완료사진 1장 이상 등록이 필요합니다."}
-          </div>
-        ) : null}
-
-        <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-          <DetailBox title="기본 정보">
-            <DetailRow label="담당자" value={job.manager} />
-            <DetailRow label="담당자 연락처" value={<PhoneLink value={job.managerPhone} />} />
-            <DetailRow label="고객 연락처" value={<PhoneLink value={job.phone} />} />
-            <DetailRow label="계약/발주" value={job.orderStatus} />
-            <DetailRow label="거주여부" value={job.living} />
-            <DetailRow label="조립출고" value={job.assembly} />
-          </DetailBox>
-
-          <DetailBox title="시공 정보">
-            <DetailRow label="시공기간" value={installPeriod(job)} />
-            <DetailRow label="대리석" value={shortDate(job.stoneDate)} />
-            <DetailRow label="협력사" value={job.partner} />
-            <DetailRow label="시공기사" value={isUnassignedEngineerValue(job.engineer) ? "미배정" : job.engineer} />
-            <DetailRow label="시공기사 연락처" value={<PhoneLink value={job.engineerPhone} />} />
+  const renderPaymentInfoSection = () => (
+    <>
             {user.role === "partner" ? <DetailRow label="지급시공비" value={formatMoney(partnerPaymentAmount(job))} /> : null}
             {user.role === "partner" && job.extraPaymentMemo ? <DetailRow label="지급 추가비용 내용" value={job.extraPaymentMemo} /> : null}
-          </DetailBox>
-        </div>
 
-        {canAssignEngineer ? (
+    </>
+  );
+
+  const renderEngineerAssignSection = () => (
+        canAssignEngineer ? (
           <div className="mt-4 rounded-3xl border border-blue-100 bg-blue-50 p-4">
             <h3 className="font-black text-blue-900">시공기사 배정</h3>
             <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
@@ -3421,8 +3374,10 @@ function JobDetailModal({ job, user, onClose, onUpload, onHistory, onAssign, onA
               </button>
             </div>
           </div>
-        ) : null}
+        ) : null
+  );
 
+  const renderCompanionSection = () => (
         <DetailBox title="동행기사" className="mt-4">
           {companions.length ? (
             <div className="space-y-2">
@@ -3516,11 +3471,16 @@ function JobDetailModal({ job, user, onClose, onUpload, onHistory, onAssign, onA
             </div>
           ) : null}
         </DetailBox>
+  );
+
+  const renderHistorySection = () => (
         <DetailBox title="현장 메모 / 중요 이력" className="mt-4">
           <div className="rounded-2xl bg-slate-50 p-4 text-sm font-medium leading-relaxed text-slate-700 whitespace-pre-wrap">{job.siteMemo || "메모 없음"}</div>
           <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-medium leading-relaxed text-amber-900 whitespace-pre-wrap">{job.history || "중요 이력 없음"}</div>
         </DetailBox>
+  );
 
+  const renderPhotoSection = () => (
         <DetailBox title="사진 / 도면" className="mt-4">
           <div className="grid grid-cols-2 gap-2">
             {PHOTO_CATEGORY_OPTIONS.map((category) => {
@@ -3537,6 +3497,71 @@ function JobDetailModal({ job, user, onClose, onUpload, onHistory, onAssign, onA
           <button type="button" onClick={() => onPhotoView?.("\uC804\uCCB4")} className="mt-3 flex w-full items-center justify-center rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-black text-emerald-700">{"\uC0AC\uC9C4\uBCF4\uAE30"}</button>
           <button onClick={onUpload} disabled={locked} className="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-4 text-sm font-black text-white disabled:bg-slate-300"><Upload className="h-4 w-4" /> {locked ? "잠금" : "사진등록"}</button>
         </DetailBox>
+  );
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 md:items-center md:p-4">
+      <div className="max-h-[94vh] w-full max-w-2xl overflow-y-auto rounded-t-[2rem] bg-white p-5 shadow-2xl md:rounded-[2rem]">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-2xl font-black">{job.customer}</h2>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {locked ? <Badge className="border-rose-200 bg-rose-50 text-rose-700">관리자 잠금</Badge> : null}
+              <Badge className={STATUS_CLASS[job.status] || "border-slate-200 bg-slate-100 text-slate-600"}>{job.status}</Badge>
+              {user.role === "partner" && (isUnassignedEngineerValue(job.engineer) || job.status === "기사배정요청") ? (
+                <Badge className="border-amber-300 bg-amber-50 text-amber-700">시공기사 미배정</Badge>
+              ) : null}
+              {isRefinishingJob(job) ? <RefinishingBadge /> : <Badge className="border-slate-200 bg-slate-50 text-slate-600">{job.item}</Badge>}
+            </div>
+          </div>
+          <button onClick={onClose} className="rounded-2xl border p-2 text-slate-500"><X className="h-5 w-5" /></button>
+        </div>
+
+        <div className="mt-4 rounded-3xl bg-slate-50 p-4">
+          <div className="flex items-start gap-2">
+            <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
+            <p className="min-w-0 flex-1 text-sm font-bold leading-relaxed text-slate-700">{job.address}</p>
+          </div>
+          <button onClick={() => onCopyAddress(job)} className="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl border bg-white px-4 py-3 text-xs font-black text-slate-700">
+            <Copy className="h-4 w-4" /> {addressCopied ? "복사됨" : "주소복사"}
+          </button>
+        </div>
+
+        {locked || (!isComplete && !completePhotoReady) ? (
+          <div className={`mt-4 rounded-3xl border p-4 text-sm font-bold leading-relaxed ${locked ? "border-rose-200 bg-rose-50 text-rose-700" : "border-orange-200 bg-orange-50 text-orange-700"}`}>
+            {locked
+              ? "마스터가 잠금 처리한 현장입니다. 잠금 해제 전까지 사진등록, 이력등록, 완료보고, 시공기사 배정을 사용할 수 없습니다."
+              : "완료보고 전 완료사진 1장 이상 등록이 필요합니다."}
+          </div>
+        ) : null}
+
+        <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+          <DetailBox title="기본 정보">
+            <DetailRow label="담당자" value={job.manager} />
+            <DetailRow label="담당자 연락처" value={<PhoneLink value={job.managerPhone} />} />
+            <DetailRow label="고객 연락처" value={<PhoneLink value={job.phone} />} />
+            <DetailRow label="계약/발주" value={job.orderStatus} />
+            <DetailRow label="거주여부" value={job.living} />
+            <DetailRow label="조립출고" value={job.assembly} />
+          </DetailBox>
+
+          <DetailBox title="시공 정보">
+            <DetailRow label="시공기간" value={installPeriod(job)} />
+            <DetailRow label="대리석" value={shortDate(job.stoneDate)} />
+            <DetailRow label="협력사" value={job.partner} />
+            <DetailRow label="시공기사" value={isUnassignedEngineerValue(job.engineer) ? "미배정" : job.engineer} />
+            <DetailRow label="시공기사 연락처" value={<PhoneLink value={job.engineerPhone} />} />
+            {renderPaymentInfoSection()}
+          </DetailBox>
+        </div>
+
+        {renderEngineerAssignSection()}
+
+        {renderCompanionSection()}
+
+        {renderHistorySection()}
+
+        {renderPhotoSection()}
 
         {actionMessage ? <div className="mt-4 rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-800">{actionMessage}</div> : null}
 
