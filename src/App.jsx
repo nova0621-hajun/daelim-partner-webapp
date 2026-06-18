@@ -727,9 +727,18 @@ export default function PartnerInstallerPortal() {
 
   const visibleJobs = useMemo(() => {
     if (!user) return [];
+    const userEngineerName = String(user.engineerName || "").trim();
     const scopedJobs = user.role === "partner"
       ? jobs.filter((job) => job.partner === user.partnerName)
-      : jobs.filter((job) => job.engineer === user.engineerName);
+      : jobs.filter((job) => {
+        const mainEngineer = String(job.engineer || "").trim() === userEngineerName;
+        const companionEngineer = Array.isArray(job.companions) && job.companions.some((companion) => (
+          String(companion?.engineerName || "").trim() === userEngineerName &&
+          String(companion?.status || "").trim().toLowerCase() === "active"
+        ));
+
+        return mainEngineer || companionEngineer;
+      });
 
     return sortJobsByInstallDateDesc(scopedJobs);
   }, [jobs, user]);
