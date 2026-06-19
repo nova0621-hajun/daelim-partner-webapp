@@ -16,9 +16,14 @@ import {
   Users,
   X,
 } from "lucide-react";
+import {
+  apiPost,
+  clearPartnerSession,
+  partnerSessionPreferredAuthPayload,
+  readPartnerSession,
+  writePartnerSession,
+} from "./api/partnerApi";
 
-const WEBAPP_URL =
-  "https://script.google.com/macros/s/AKfycbzunWIU75WOPAnZLS9MGqgLLJ9-P4P1f59gNpggLcWcEGs_P0NArHOLdKNwwPQGekMewg/exec";
 const R2_PUBLIC_BASE_URL = "https://daelim-r2-photo-worker.nova0621.workers.dev";
 const buildR2FastViewUrl = (storageKey) =>
   storageKey ? `${R2_PUBLIC_BASE_URL}/fast-view?key=${encodeURIComponent(storageKey)}` : "";
@@ -48,54 +53,6 @@ const getPhotoIdentityKey = (job, month) => {
   return "";
 };
 const isPhotoCountLoaded = (job) => job?.photoCountsLoaded === true;
-const SESSION_STORAGE_KEY = "daelimPartnerPortalUser";
-const SESSION_TTL = 1000 * 60 * 60 * 8;
-
-function readPartnerSession() {
-  try {
-    const raw = window.sessionStorage.getItem(SESSION_STORAGE_KEY) || window.localStorage.getItem(SESSION_STORAGE_KEY);
-    if (!raw) return null;
-
-    const parsed = JSON.parse(raw);
-    const savedAt = parsed.savedAt || 0;
-    const user = parsed.user || parsed;
-
-    if (!user?.role || !user?.name) return null;
-
-    if (savedAt && Date.now() - savedAt > SESSION_TTL) {
-      window.sessionStorage.removeItem(SESSION_STORAGE_KEY);
-      window.localStorage.removeItem(SESSION_STORAGE_KEY);
-      return null;
-    }
-
-    return {
-      user,
-      authPassword: parsed.authPassword || user.currentPassword || "",
-    };
-  } catch (err) {
-    return null;
-  }
-}
-
-function writePartnerSession(user, authPassword) {
-  try {
-    const cleanUser = { ...user };
-    delete cleanUser.currentPassword;
-    window.sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({
-      savedAt: Date.now(),
-      user: cleanUser,
-      authPassword,
-    }));
-    window.localStorage.removeItem(SESSION_STORAGE_KEY);
-  } catch (err) {}
-}
-
-function clearPartnerSession() {
-  try {
-    window.sessionStorage.removeItem(SESSION_STORAGE_KEY);
-    window.localStorage.removeItem(SESSION_STORAGE_KEY);
-  } catch (err) {}
-}
 
 const STATUS_CLASS = {
   기사배정요청: "border-amber-200 bg-amber-50 text-amber-700",
@@ -170,15 +127,6 @@ function RefinishingBadge() {
 }
 function getUploadAccept(category) {
   return category === "계약도면" ? DRAWING_UPLOAD_ACCEPT : PHOTO_UPLOAD_ACCEPT;
-}
-
-function parseApiJsonResponse(text) {
-  try {
-    return JSON.parse(text);
-  } catch (error) {
-    const preview = String(text || "").slice(0, 180);
-    throw new Error(`API response parse failed: ${preview}`);
-  }
 }
 
 function r2Now() {
@@ -513,57 +461,6 @@ function buildEngineerOptions(data, partnerName) {
     .filter((engineer) => engineer.name);
 }
 
-function stripPartnerPasswordFieldsForSessionAction(payload) {
-  const action = String(payload?.action || "");
-  const sessionOnlyActions = new Set([
-    "assignEngineer",
-    "completeJob",
-    "addHistory",
-    "requestPartnerEngineerAccount",
-  ]);
-
-  if (!sessionOnlyActions.has(action)) return payload;
-
-  const sessionToken = String(payload?.sessionToken || "").trim();
-  if (!sessionToken) return payload;
-
-  const {
-    password,
-    currentPassword,
-    authPassword,
-    userPassword,
-    ...rest
-  } = payload;
-
-  return { ...rest, sessionToken };
-}
-
-async function apiPost(payload) {
-  const requestPayload = stripPartnerPasswordFieldsForSessionAction(payload);
-  const response = await fetch(WEBAPP_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "text/plain;charset=utf-8",
-    },
-    body: JSON.stringify(requestPayload),
-  });
-
-  const text = await response.text();
-
-  try {
-    const data = JSON.parse(text);
-    if (data?.success === false) {
-      console.warn("[partner-api] failed", { action: requestPayload?.action || "", code: data.code || "", message: data.message || "" });
-      if (data?.code === "SESSION_EXPIRED") {
-        clearPartnerSession();
-      }
-    }
-    return data;
-  } catch (err) {
-    throw new Error(`API 응답 형식 오류: ${text.slice(0, 160)}`);
-  }
-}
-
 function portalActor(user) {
   return String(
     user?.loginId ||
@@ -578,33 +475,6 @@ function portalActor(user) {
 function isUnassignedEngineerValue(value) {
   const text = String(value || "").trim();
   return !text || text === "\uBBF8\uBC30\uC815" || text.includes("\uBBF8\uBC30\uC815");
-}
-
-function partnerAuthPayload(user, authPassword) {
-  const loginId = String(user?.loginId || user?.id || user?.name || "").trim();
-  const sessionToken = String(user?.sessionToken || "").trim();
-  const password = String(authPassword || user?.authPassword || "").trim();
-
-  return {
-    id: loginId,
-    loginId,
-    sessionToken,
-    password,
-    currentPassword: password,
-    authPassword: password,
-  };
-}
-
-function partnerSessionPreferredAuthPayload(user, authPassword) {
-  const auth = partnerAuthPayload(user, authPassword);
-  if (auth.sessionToken) {
-    return {
-      id: auth.id,
-      loginId: auth.loginId,
-      sessionToken: auth.sessionToken,
-    };
-  }
-  return auth;
 }
 
 function fileToBase64(file) {
