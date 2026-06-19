@@ -1818,6 +1818,46 @@ export default function PartnerInstallerPortal() {
     await loadPhotoGallery(job, photoViewerInitialCategory, true);
     return result;
   };
+
+  const previewPortalR2PhotoCategoryReset = async (category) => {
+    const job = photoViewerJob || {};
+    const month = job.month || job.sheet || "";
+    const photoPayload = buildPhotoJobPayload(job, month);
+    const result = await apiPost({
+      action: "previewResetR2PhotoCategory",
+      ...buildPhotoAuthPayload(),
+      ...photoPayload,
+      category,
+    });
+
+    if (result.success !== true) {
+      throw new Error(result.message || "사진 카테고리 초기화 미리보기에 실패했습니다.");
+    }
+
+    return result;
+  };
+
+  const resetPortalR2PhotoCategory = async (category) => {
+    const job = photoViewerJob || {};
+    const month = job.month || job.sheet || "";
+    const photoPayload = buildPhotoJobPayload(job, month);
+    const result = await apiPost({
+      action: "resetR2PhotoCategory",
+      ...buildPhotoAuthPayload(),
+      ...photoPayload,
+      category,
+      confirmed: true,
+    });
+
+    if (result.success !== true) {
+      throw new Error(result.message || "사진 카테고리 초기화에 실패했습니다.");
+    }
+
+    delete photoViewerListCacheRef.current[getPhotoIdentityKey(job, month)];
+    await loadPhotoGallery(job, category, true);
+    return result;
+  };
+
   const uploadPhotoFiles = async (job, category, files) => {
     if (!job || !user) return { success: false, message: "\uC798\uBABB\uB41C \uD604\uC7A5\uC785\uB2C8\uB2E4." };
 
@@ -2356,7 +2396,7 @@ export default function PartnerInstallerPortal() {
       ) : null}
 
       {uploadJob ? <UploadModal job={uploadJob} onClose={() => setUploadJob(null)} onSubmit={uploadPhotoFiles} uploading={uploadingJobId === jobKey(uploadJob)} progress={uploadProgress} message={actionMessage} onPhotoView={() => loadPhotoGallery(uploadJob, "\uC804\uCCB4")} /> : null}
-      {photoViewerJob ? <PhotoViewerModal job={photoViewerJob} photos={photoViewerPhotos} photoInfo={photoViewerInfo} loading={photoViewerLoading} error={photoViewerError} initialCategory={photoViewerInitialCategory} onClose={() => setPhotoViewerJob(null)} onRefresh={() => loadPhotoGallery(photoViewerJob, photoViewerInitialCategory, true)} onViewR2={viewR2Photo} onViewR2Batch={viewR2Photos} user={user} onRequestDelete={requestDeletePortalR2Photo} /> : null}
+      {photoViewerJob ? <PhotoViewerModal job={photoViewerJob} photos={photoViewerPhotos} photoInfo={photoViewerInfo} loading={photoViewerLoading} error={photoViewerError} initialCategory={photoViewerInitialCategory} onClose={() => setPhotoViewerJob(null)} onRefresh={() => loadPhotoGallery(photoViewerJob, photoViewerInitialCategory, true)} onViewR2={viewR2Photo} onViewR2Batch={viewR2Photos} user={user} onRequestDelete={requestDeletePortalR2Photo} onPreviewResetCategory={previewPortalR2PhotoCategoryReset} onResetCategory={resetPortalR2PhotoCategory} /> : null}
       {historyJob ? <HistoryModal job={historyJob} onClose={() => setHistoryJob(null)} onSubmit={addHistory} saving={historySavingJobId === jobKey(historyJob)} message={actionMessage} /> : null}
     </div>
   );
@@ -2763,7 +2803,7 @@ function PhoneLink({ value }) {
   return <a href={`tel:${onlyDigits(phone)}`} className="font-black text-blue-700 underline decoration-blue-300 underline-offset-2"><Phone className="mr-1 inline h-3.5 w-3.5" />{phone}</a>;
 }
 
-function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false, error = "", initialCategory = "\uC804\uCCB4", onClose, onRefresh, onViewR2, onViewR2Batch, user = null, onRequestDelete }) {
+function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false, error = "", initialCategory = "\uC804\uCCB4", onClose, onRefresh, onViewR2, onViewR2Batch, user = null, onRequestDelete, onPreviewResetCategory, onResetCategory }) {
   const ALL_TAB = "\uC804\uCCB4";
   const counts = photoInfo?.counts || job?.photoCounts || {};
   const urls = photoInfo?.urls || job?.photoUrls || {};
@@ -2777,6 +2817,15 @@ function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false,
   const [secretVersion, setSecretVersion] = useState(0);
   const [zoomOpen, setZoomOpen] = useState(false);
   const [deleteActionState, setDeleteActionState] = useState({ type: "", message: "", error: "" });
+  const [categoryResetState, setCategoryResetState] = useState({
+    open: false,
+    category: "",
+    preview: null,
+    loading: false,
+    executing: false,
+    error: "",
+    message: "",
+  });
   const imageDisplayStartRef = useRef(null);
   const touchStartXRef = useRef(null);
   const viewUrlCacheRef = useRef({});
@@ -2809,6 +2858,14 @@ function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false,
   const isUploader = !!activePhoto && (uploadedBy === userName || uploadedBy === userLoginId);
   const isAssignedEngineer = user?.role === "engineer" && installerName && installerName === userName;
   const canRequestDelete = !!activePhoto && !activePhotoDeleted && !activePhotoDeleteRequested && (isUploader || isAssignedEngineer);
+  const jobCompleted = job?.status === "\uC2DC\uACF5\uC644\uB8CC";
+  const jobLocked = isJobLocked(job);
+  const canResetActiveCategory = !!onPreviewResetCategory &&
+    !!onResetCategory &&
+    activeCategory !== ALL_TAB &&
+    !jobCompleted &&
+    !jobLocked &&
+    (user?.role === "partner" || user?.role === "engineer");
   const deleteActionBusy = !!deleteActionState.type;
   const hasDeleteActionArea = !!activePhoto && (
     activePhotoDeleteRequested ||
@@ -2829,6 +2886,83 @@ function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false,
       const message = err?.message || "삭제요청에 실패했습니다.";
       setDeleteActionState({ type: "", message: "", error: message });
       window.alert(message);
+    }
+  };
+  const openCategoryResetPreview = async () => {
+    if (!canResetActiveCategory || categoryResetState.loading || categoryResetState.executing) return;
+    const category = activeCategory;
+    setCategoryResetState({
+      open: true,
+      category,
+      preview: null,
+      loading: true,
+      executing: false,
+      error: "",
+      message: "",
+    });
+
+    try {
+      const preview = await onPreviewResetCategory(category);
+      setCategoryResetState({
+        open: true,
+        category,
+        preview,
+        loading: false,
+        executing: false,
+        error: "",
+        message: "",
+      });
+    } catch (error) {
+      setCategoryResetState({
+        open: true,
+        category,
+        preview: null,
+        loading: false,
+        executing: false,
+        error: error?.message || "사진 카테고리 초기화 미리보기에 실패했습니다.",
+        message: "",
+      });
+    }
+  };
+  const closeCategoryResetPreview = () => {
+    if (categoryResetState.loading || categoryResetState.executing) return;
+    setCategoryResetState({
+      open: false,
+      category: "",
+      preview: null,
+      loading: false,
+      executing: false,
+      error: "",
+      message: "",
+    });
+  };
+  const executeCategoryReset = async () => {
+    const targetCount = Number(categoryResetState.preview?.targetCount || 0);
+    if (!categoryResetState.category || !targetCount || categoryResetState.loading || categoryResetState.executing) return;
+
+    setCategoryResetState((current) => ({
+      ...current,
+      executing: true,
+      error: "",
+      message: "카테고리 초기화 처리 중입니다...",
+    }));
+
+    try {
+      const result = await onResetCategory(categoryResetState.category);
+      setCategoryResetState((current) => ({
+        ...current,
+        preview: result || current.preview,
+        executing: false,
+        error: "",
+        message: `초기화가 완료되었습니다. 삭제 처리: ${Number(result?.deletedCount || 0)}건`,
+      }));
+    } catch (error) {
+      setCategoryResetState((current) => ({
+        ...current,
+        executing: false,
+        error: error?.message || "사진 카테고리 초기화에 실패했습니다.",
+        message: "",
+      }));
     }
   };
   const fallbackCount = visiblePhotos.length ? 0 : (activeCategory === ALL_TAB ? PHOTO_CATEGORY_OPTIONS.reduce((sum, key) => sum + numberValue(counts?.[key]), 0) : numberValue(counts?.[activeCategory]));
@@ -3071,7 +3205,19 @@ function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false,
 
         <div className="mt-3 flex items-center justify-between gap-2">
           <p className="text-xs font-bold text-slate-500">{activeCountLabel}</p>
-          <button type="button" onClick={onRefresh} disabled={loading} className="rounded-xl border bg-white px-3 py-2 text-xs font-black text-slate-700 disabled:opacity-50">{"\uC0C8\uB85C\uACE0\uCE68"}</button>
+          <div className="flex flex-wrap justify-end gap-2">
+            {canResetActiveCategory ? (
+              <button
+                type="button"
+                onClick={openCategoryResetPreview}
+                disabled={categoryResetState.loading || categoryResetState.executing}
+                className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-black text-amber-700 disabled:opacity-50"
+              >
+                {categoryResetState.loading ? "확인 중..." : "카테고리 초기화"}
+              </button>
+            ) : null}
+            <button type="button" onClick={onRefresh} disabled={loading} className="rounded-xl border bg-white px-3 py-2 text-xs font-black text-slate-700 disabled:opacity-50">{"\uC0C8\uB85C\uACE0\uCE68"}</button>
+          </div>
         </div>
 
         {loading ? <div className="mt-4 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-black text-white"><Loader2 className="mr-2 inline h-4 w-4 animate-spin" />{"\uC0AC\uC9C4 \uBD88\uB7EC\uC624\uB294 \uC911"}</div> : null}
@@ -3120,6 +3266,102 @@ function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false,
           </div>
         ) : null}
       </div>
+      {categoryResetState.open ? (
+        <div className="fixed inset-0 z-[85] flex items-end justify-center bg-black/50 p-0 md:items-center md:p-4">
+          <div className="w-full max-w-lg rounded-t-3xl bg-white p-5 shadow-2xl md:rounded-3xl">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-black text-amber-600">사진 카테고리 초기화</p>
+                <h3 className="mt-1 text-xl font-black text-slate-900">{categoryResetState.category}</h3>
+              </div>
+              <button
+                type="button"
+                onClick={closeCategoryResetPreview}
+                disabled={categoryResetState.loading || categoryResetState.executing}
+                className="rounded-xl border p-2 text-slate-500 disabled:opacity-50"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {categoryResetState.loading ? (
+              <div className="mt-4 flex items-center gap-2 rounded-2xl bg-slate-50 px-4 py-3 text-sm font-black text-slate-600">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span>초기화 대상을 확인하는 중입니다...</span>
+              </div>
+            ) : null}
+
+            {categoryResetState.error ? (
+              <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-700">
+                {categoryResetState.error}
+              </div>
+            ) : null}
+
+            {categoryResetState.preview ? (
+              <div className="mt-4 space-y-3">
+                <div className="grid grid-cols-2 gap-2 text-sm">
+                  <div className="rounded-2xl bg-slate-50 p-3">
+                    <p className="text-xs font-bold text-slate-400">초기화 대상</p>
+                    <p className="mt-1 text-lg font-black text-slate-900">{Number(categoryResetState.preview.targetCount || 0)}건</p>
+                  </div>
+                  <div className="rounded-2xl bg-emerald-50 p-3">
+                    <p className="text-xs font-bold text-emerald-500">내 등록</p>
+                    <p className="mt-1 text-lg font-black text-emerald-700">{Number(categoryResetState.preview.ownUploadCount || 0)}건</p>
+                  </div>
+                  <div className="rounded-2xl bg-orange-50 p-3">
+                    <p className="text-xs font-bold text-orange-500">다른 등록자</p>
+                    <p className="mt-1 text-lg font-black text-orange-700">{Number(categoryResetState.preview.otherUploadCount || 0)}건</p>
+                  </div>
+                  <div className="rounded-2xl bg-amber-50 p-3">
+                    <p className="text-xs font-bold text-amber-500">기존 사진</p>
+                    <p className="mt-1 text-lg font-black text-amber-700">{Number(categoryResetState.preview.legacyMissingUploadedByIdCount || 0)}건</p>
+                  </div>
+                </div>
+
+                {Number(categoryResetState.preview.targetCount || 0) <= 0 ? (
+                  <p className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-500">
+                    초기화할 활성 사진이 없습니다.
+                  </p>
+                ) : null}
+
+                {Number(categoryResetState.preview.otherUploadCount || 0) > 0 || Number(categoryResetState.preview.legacyMissingUploadedByIdCount || 0) > 0 ? (
+                  <p className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-black leading-relaxed text-amber-800">
+                    다른 등록자 사진 또는 등록자 ID가 없는 기존 사진이 포함될 수 있습니다. 서버 권한 기준으로 처리됩니다.
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+
+            {categoryResetState.message ? (
+              <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-black text-emerald-700">
+                {categoryResetState.message}
+              </div>
+            ) : null}
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={closeCategoryResetPreview}
+                disabled={categoryResetState.loading || categoryResetState.executing}
+                className="rounded-2xl border bg-white px-4 py-3 text-sm font-black text-slate-700 disabled:opacity-50"
+              >
+                {categoryResetState.message ? "닫기" : "취소"}
+              </button>
+              {Number(categoryResetState.preview?.targetCount || 0) > 0 && !categoryResetState.message ? (
+                <button
+                  type="button"
+                  onClick={executeCategoryReset}
+                  disabled={categoryResetState.loading || categoryResetState.executing}
+                  className="flex items-center justify-center gap-2 rounded-2xl bg-amber-600 px-4 py-3 text-sm font-black text-white disabled:bg-amber-300"
+                >
+                  {categoryResetState.executing ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  {categoryResetState.executing ? "초기화 중" : "초기화 실행"}
+                </button>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
       {zoomOpen && imageUrl ? (
         <div className="fixed inset-0 z-[90] flex flex-col bg-black/95 p-3 text-white md:p-6" onTouchStart={(e) => { touchStartXRef.current = e.touches?.[0]?.clientX ?? null; }} onTouchEnd={(e) => { if (touchStartXRef.current === null) return; const endX = e.changedTouches?.[0]?.clientX ?? touchStartXRef.current; const diff = touchStartXRef.current - endX; touchStartXRef.current = null; if (Math.abs(diff) >= 40) move(diff > 0 ? 1 : -1); }}>
           <div className="flex items-center justify-between gap-3">
