@@ -23,6 +23,13 @@ import {
   readPartnerSession,
   writePartnerSession,
 } from "./api/partnerApi";
+import {
+  formatMoney,
+  formatPhone,
+  numberValue,
+  onlyDigits,
+  parseJobDate,
+} from "./utils/partnerUtils";
 
 const R2_PUBLIC_BASE_URL = "https://daelim-r2-photo-worker.nova0621.workers.dev";
 const buildR2FastViewUrl = (storageKey) =>
@@ -233,26 +240,6 @@ function compressImageFile(file, maxWidth = 1600, quality = 0.82) {
   });
 }
 
-function onlyDigits(value) {
-  return String(value || "").replace(/[^0-9]/g, "");
-}
-
-function formatPhone(value) {
-  const digits = onlyDigits(value).slice(0, 11);
-  if (digits.length <= 3) return digits;
-  if (digits.length <= 7) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
-  return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
-}
-
-function numberValue(value) {
-  return Number(String(value || "").replace(/[^0-9.-]/g, "")) || 0;
-}
-
-function formatMoney(value) {
-  const amount = numberValue(value);
-  return `${amount.toLocaleString("ko-KR")}원`;
-}
-
 function shortDate(value) {
   if (!value) return "-";
   const [yyyy, mm, dd] = String(value).split("-");
@@ -263,13 +250,6 @@ function installPeriod(job) {
   if (!job.installDate) return "-";
   if (!job.endDate || job.installDate === job.endDate) return shortDate(job.installDate);
   return `${shortDate(job.installDate)} ~ ${shortDate(job.endDate)}`;
-}
-
-function parseJobDate(value) {
-  if (!value) return null;
-  const text = String(value).trim().replace(/\./g, "-");
-  const parsed = new Date(text);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
 function toDateKey(date) {
