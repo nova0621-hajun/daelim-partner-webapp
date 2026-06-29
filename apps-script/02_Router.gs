@@ -88,6 +88,9 @@ function doPost(e) {
       case "requestPartnerEngineerAccount":
         return jsonOutput(requestPartnerEngineerAccount(body));
 
+      case "partnerEngineerAccountRequestHistory":
+        return jsonOutput(getPartnerEngineerAccountRequestHistory(body));
+
       case "partnerEngineerAccountRequests":
         return jsonOutput(getPartnerEngineerAccountRequests(body));
 

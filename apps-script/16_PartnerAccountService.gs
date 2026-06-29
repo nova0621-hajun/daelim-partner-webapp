@@ -520,6 +520,62 @@ function requestPartnerEngineerAccount(body) {
 }
 
 /**
+ * partner 전용 본인 협력사 기사 계정 요청 이력 조회
+ *
+ * @param {Object} body 요청 데이터
+ * @returns {Object} 요청 이력
+ */
+function getPartnerEngineerAccountRequestHistory(body) {
+  const auth = verifyPartnerRequester_(body);
+
+  if (!auth.success) {
+    return auth;
+  }
+
+  const sheet = getPartnerAccountRequestSheet_();
+  const lastRow = sheet.getLastRow();
+  const rows = [];
+
+  if (lastRow >= 2) {
+    const values = sheet.getRange(2, 1, lastRow - 1, PARTNER_ACCOUNT_REQUEST_COL.NOTE).getValues();
+
+    values.forEach(function(row, index) {
+      const request = rowToPartnerAccountRequest_(row, index + 2);
+      if (request.partnerName !== auth.partnerName) return;
+
+      const loginId = buildPartnerLoginId_(request.engineerName, request.phone);
+      const account = findPartnerAccountByLoginId_(loginId);
+      const accountCreated =
+        !!account &&
+        account.partnerName === auth.partnerName &&
+        account.role === "engineer" &&
+        account.enabled === "승인";
+
+      rows.push({
+        requestId: request.requestId,
+        engineerName: request.engineerName,
+        phone: request.phone,
+        status: request.status || "대기",
+        requestedAt: request.requestedAt,
+        handler: request.handler,
+        handledAt: request.handledAt,
+        note: request.status === "반려" ? request.note : "",
+        accountCreated: accountCreated
+      });
+    });
+  }
+
+  rows.sort(function(a, b) {
+    return Number(new Date(b.requestedAt || 0)) - Number(new Date(a.requestedAt || 0));
+  });
+
+  return {
+    success: true,
+    rows: rows
+  };
+}
+
+/**
  * master 전용 협력사 기사 계정 요청 목록 조회
  *
  * @param {Object} body 요청 데이터

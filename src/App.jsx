@@ -467,6 +467,19 @@ function portalActor(user) {
   ).trim();
 }
 
+function formatEngineerRequestDateTime(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value || "");
+  return date.toLocaleString("ko-KR", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function isUnassignedEngineerValue(value) {
   const text = String(value || "").trim();
   return !text || text === "\uBBF8\uBC30\uC815" || text.includes("\uBBF8\uBC30\uC815");
@@ -553,6 +566,9 @@ export default function PartnerInstallerPortal() {
   const [engineerRequestForm, setEngineerRequestForm] = useState({ name: "", phone: "" });
   const [engineerRequestLoading, setEngineerRequestLoading] = useState(false);
   const [engineerRequestMessage, setEngineerRequestMessage] = useState("");
+  const [engineerRequestHistory, setEngineerRequestHistory] = useState([]);
+  const [engineerRequestHistoryLoading, setEngineerRequestHistoryLoading] = useState(false);
+  const [engineerRequestHistoryMessage, setEngineerRequestHistoryMessage] = useState("");
   const [showEngineerRequest, setShowEngineerRequest] = useState(false);
   const [visibleJobLimit, setVisibleJobLimit] = useState(JOB_PAGE_SIZE);
   const listRef = useRef(null);
@@ -1090,6 +1106,33 @@ export default function PartnerInstallerPortal() {
     setUploadJob(null);
     setHistoryJob(null);
     setEngineerOptions([]);
+    setEngineerRequestHistory([]);
+    setEngineerRequestHistoryMessage("");
+  };
+
+  const loadEngineerAccountRequestHistory = async (options = {}) => {
+    if (!user || user.role !== "partner" || engineerRequestHistoryLoading) return;
+
+    try {
+      setEngineerRequestHistoryLoading(true);
+      if (!options.silent) setEngineerRequestHistoryMessage("");
+
+      const result = await apiPost({
+        action: "partnerEngineerAccountRequestHistory",
+        ...partnerSessionPreferredAuthPayload(user, partnerAuthPassword || user.authPassword || ""),
+      });
+
+      if (!result.success) {
+        setEngineerRequestHistoryMessage(result.message || "기사 계정 신청 내역을 불러오지 못했습니다.");
+        return;
+      }
+
+      setEngineerRequestHistory(Array.isArray(result.rows) ? result.rows : []);
+    } catch (error) {
+      setEngineerRequestHistoryMessage(error?.message || "기사 계정 신청 내역 API 연결에 실패했습니다.");
+    } finally {
+      setEngineerRequestHistoryLoading(false);
+    }
   };
 
   const submitEngineerAccountRequest = async () => {
@@ -1121,6 +1164,7 @@ export default function PartnerInstallerPortal() {
 
       setEngineerRequestForm({ name: "", phone: "" });
       setEngineerRequestMessage(result.message || "기사 계정 생성 요청이 등록되었습니다.");
+      await loadEngineerAccountRequestHistory({ silent: true });
     } catch (error) {
       setEngineerRequestMessage(error?.message || "기사 계정 생성 요청 API 연결에 실패했습니다.");
     } finally {
@@ -2175,6 +2219,7 @@ export default function PartnerInstallerPortal() {
     setShowEngineerRequest((current) => {
       const next = !current;
       if (next) {
+        loadEngineerAccountRequestHistory({ silent: true });
         window.setTimeout(() => {
           engineerRequestRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
         }, 80);
@@ -2238,6 +2283,12 @@ export default function PartnerInstallerPortal() {
               message={engineerRequestMessage}
               onSubmit={submitEngineerAccountRequest}
               onCollapse={() => setShowEngineerRequest(false)}
+            />
+            <EngineerAccountRequestHistory
+              rows={engineerRequestHistory}
+              loading={engineerRequestHistoryLoading}
+              message={engineerRequestHistoryMessage}
+              onRefresh={() => loadEngineerAccountRequestHistory()}
             />
           </div>
         ) : null}
@@ -2829,6 +2880,76 @@ function PhoneLink({ value }) {
   const phone = formatPhone(value || "");
   if (!phone) return <span>-</span>;
   return <a href={`tel:${onlyDigits(phone)}`} className="font-black text-blue-700 underline decoration-blue-300 underline-offset-2"><Phone className="mr-1 inline h-3.5 w-3.5" />{phone}</a>;
+}
+
+function EngineerAccountRequestHistory({ rows = [], loading = false, message = "", onRefresh }) {
+  const statusClass = (status) => {
+    if (status === "승인") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+    if (status === "반려") return "border-rose-200 bg-rose-50 text-rose-700";
+    return "border-amber-200 bg-amber-50 text-amber-700";
+  };
+
+  return (
+    <section className="mt-3 rounded-3xl border bg-white p-3 shadow-sm md:p-5">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-xs font-black text-slate-400">REQUEST HISTORY</p>
+          <h3 className="mt-1 text-base font-black text-slate-900">신청 내역</h3>
+        </div>
+        <button
+          type="button"
+          onClick={onRefresh}
+          disabled={loading}
+          className="rounded-2xl border bg-white px-3 py-2 text-xs font-black text-slate-600 disabled:opacity-50"
+        >
+          {loading ? "조회 중" : "새로고침"}
+        </button>
+      </div>
+
+      {message ? (
+        <div className="mt-3 rounded-2xl border border-rose-100 bg-rose-50 px-4 py-3 text-xs font-bold text-rose-700">
+          {message}
+        </div>
+      ) : null}
+
+      {loading && rows.length === 0 ? (
+        <div className="mt-3 rounded-2xl border border-dashed p-4 text-center text-xs font-bold text-slate-400">
+          신청 내역을 불러오는 중입니다.
+        </div>
+      ) : rows.length === 0 ? (
+        <div className="mt-3 rounded-2xl border border-dashed p-4 text-center text-xs font-bold text-slate-400">
+          아직 신청 내역이 없습니다.
+        </div>
+      ) : (
+        <div className="mt-3 space-y-2">
+          {rows.map((row) => (
+            <div key={row.requestId || `${row.engineerName}-${row.requestedAt}`} className="rounded-2xl border border-slate-100 bg-slate-50 p-3">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <p className="text-sm font-black text-slate-900">{row.engineerName || "-"}</p>
+                  <p className="mt-0.5 text-xs font-bold text-slate-500">{formatPhone(row.phone || "") || "-"}</p>
+                </div>
+                <span className={`w-fit rounded-full border px-2.5 py-1 text-[11px] font-black ${statusClass(row.status)}`}>
+                  {row.status || "대기"}
+                </span>
+              </div>
+              <div className="mt-3 grid grid-cols-1 gap-2 text-xs font-bold text-slate-500 sm:grid-cols-2">
+                <p>요청일시: {formatEngineerRequestDateTime(row.requestedAt) || "-"}</p>
+                {row.status === "승인" ? <p>계정 생성: {row.accountCreated ? "완료" : "확인 필요"}</p> : null}
+                {row.handler ? <p>처리자: {row.handler}</p> : null}
+                {row.handledAt ? <p>처리일시: {formatEngineerRequestDateTime(row.handledAt)}</p> : null}
+              </div>
+              {row.status === "반려" && row.note ? (
+                <div className="mt-3 rounded-2xl border border-rose-100 bg-white px-3 py-2 text-xs font-bold text-rose-700">
+                  반려 사유: {row.note}
+                </div>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
 }
 
 function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false, error = "", initialCategory = "\uC804\uCCB4", onClose, onRefresh, onViewR2, onViewR2Batch, user = null, onRequestDelete, onPreviewResetCategory, onResetCategory }) {
