@@ -2407,7 +2407,6 @@ export default function PartnerInstallerPortal() {
             }
             setActionMessage("");
             setHistoryJob(detailJob);
-            setDetailJob(null);
           }}
           onAssign={assignInstaller}
           onAddCompanion={addCompanionEngineer}
