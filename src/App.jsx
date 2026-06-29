@@ -202,7 +202,9 @@ async function callR2WorkerApi(path, payload = {}) {
   });
 
   if (data.success !== true) {
-    throw new Error(data.message || "R2 URL \uBC1C\uAE09\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.");
+    const error = new Error(data.message || "R2 URL \uBC1C\uAE09\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.");
+    error.code = data.code || "";
+    throw error;
   }
 
   return data;
@@ -359,6 +361,14 @@ function isJobLocked(job) {
   if (!job) return false;
   const lockValue = String(job.editLock || job.editLocked || job.locked || "").trim().toUpperCase();
   return job.editLocked === true || job.locked === true || lockValue === "Y" || lockValue === "TRUE";
+}
+
+function isJobCompleted(job) {
+  return job?.status === "\uC2DC\uACF5\uC644\uB8CC";
+}
+
+function isPhotoUploadPolicyError(error) {
+  return ["LOCKED_JOB", "COMPLETED_JOB"].includes(error?.code);
 }
 
 function activeCompanions(job) {
@@ -1796,13 +1806,14 @@ export default function PartnerInstallerPortal() {
     });
     return resultMap;
   };
-  const requestDeletePortalR2Photo = async (photo, reason = "") => {
+  const requestDeletePortalR2Photo = async (photo, reason = "", actionType = "request") => {
     const job = photoViewerJob || {};
     const month = job.month || job.sheet || photo.month || "";
     const rowNumber = job.rowNumber || photo.rowNumber || "";
     const photoPayload = buildPhotoJobPayload(job, month);
+    const action = actionType === "delete" ? "deleteR2Photo" : "requestDeleteR2Photo";
     const result = await apiPost({
-      action: "requestDeleteR2Photo",
+      action,
       ...buildPhotoAuthPayload(),
       photoId: photo.photoId || "",
       storageKey: photo.storageKey || "",
@@ -1813,7 +1824,7 @@ export default function PartnerInstallerPortal() {
       reason,
     });
 
-    if (result.success !== true) throw new Error(result.message || "삭제요청에 실패했습니다.");
+    if (result.success !== true) throw new Error(result.message || (actionType === "delete" ? "사진 삭제에 실패했습니다." : "삭제요청에 실패했습니다."));
     delete photoViewerListCacheRef.current[getPhotoIdentityKey(job, month)];
     await loadPhotoGallery(job, photoViewerInitialCategory, true);
     return result;
@@ -1867,6 +1878,12 @@ export default function PartnerInstallerPortal() {
       return { success: false, message };
     }
 
+    if (isJobCompleted(job)) {
+      const message = "\uC2DC\uACF5\uC644\uB8CC \uD604\uC7A5\uC740 \uC0AC\uC9C4\uC744 \uB4F1\uB85D\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.";
+      setActionMessage(message);
+      return { success: false, message };
+    }
+
     const selectedCategory = normalizePhotoCategory(category);
     const fileList = Array.from(files || []);
     const check = validateUploadFiles(fileList, selectedCategory);
@@ -1905,6 +1922,7 @@ export default function PartnerInstallerPortal() {
         try {
           await uploadPhotoToR2({ job, uploadFile: item.uploadFile, originalFile: item.file, selectedCategory });
         } catch (r2Error) {
+          if (isPhotoUploadPolicyError(r2Error)) throw r2Error;
           console.warn("[photo-upload] single r2 failed, fallback drive", r2Error);
           const fallbackResult = await uploadPhotoToDriveFallback({ job, uploadFile: item.uploadFile, selectedCategory });
           if (fallbackResult.success !== true) throw new Error(fallbackResult.message || "\uAE30\uC874 \uC800\uC7A5\uC18C \uC0AC\uC9C4\uB4F1\uB85D \uC2E4\uD328");
@@ -1968,6 +1986,11 @@ export default function PartnerInstallerPortal() {
         const presign = presignResults.find((result) => Number(result.index) === item.index);
         const fileStart = r2Now();
         if (!presign?.success || !presign.uploadUrl) {
+          if (["LOCKED_JOB", "COMPLETED_JOB"].includes(presign?.code)) {
+            const error = new Error(presign.message || "\uC0AC\uC9C4 \uC5C5\uB85C\uB4DC\uAC00 \uC81C\uD55C\uB41C \uD604\uC7A5\uC785\uB2C8\uB2E4.");
+            error.code = presign.code;
+            throw error;
+          }
           const fallbackResult = await uploadPhotoToDriveFallback({ job, uploadFile: item.uploadFile, selectedCategory });
           if (fallbackResult.success !== true) throw new Error(fallbackResult.message || "\uAE30\uC874 \uC800\uC7A5\uC18C \uC0AC\uC9C4\uB4F1\uB85D \uC2E4\uD328");
           logR2Timing("photo-upload", "file total", fileStart, { index: item.index + 1, storage: "drive" });
@@ -1986,6 +2009,7 @@ export default function PartnerInstallerPortal() {
           logR2Timing("photo-upload", "file total", fileStart, { index: item.index + 1, storage: "r2" });
           return { success: true, presign, storage: "r2", item };
         } catch (r2Error) {
+          if (isPhotoUploadPolicyError(r2Error)) throw r2Error;
           console.warn("[photo-upload] r2 put failed, fallback drive", r2Error);
           const fallbackResult = await uploadPhotoToDriveFallback({ job, uploadFile: item.uploadFile, selectedCategory });
           if (fallbackResult.success !== true) throw new Error(fallbackResult.message || "\uAE30\uC874 \uC800\uC7A5\uC18C \uC0AC\uC9C4\uB4F1\uB85D \uC2E4\uD328");
@@ -2109,6 +2133,11 @@ export default function PartnerInstallerPortal() {
 
     if (isJobLocked(job)) {
       setActionMessage("관리자가 잠근 현장입니다. 사진을 등록할 수 없습니다.");
+      return;
+    }
+
+    if (isJobCompleted(job)) {
+      setActionMessage("시공완료 현장은 사진을 등록할 수 없습니다.");
       return;
     }
 
@@ -2857,33 +2886,57 @@ function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false,
   const installerName = String(job?.installer || job?.engineer || job?.engineerName || "").trim();
   const isUploader = !!activePhoto && (uploadedBy === userName || uploadedBy === userLoginId);
   const isAssignedEngineer = user?.role === "engineer" && installerName && installerName === userName;
-  const canRequestDelete = !!activePhoto && !activePhotoDeleted && !activePhotoDeleteRequested && (isUploader || isAssignedEngineer);
   const jobCompleted = job?.status === "\uC2DC\uACF5\uC644\uB8CC";
   const jobLocked = isJobLocked(job);
+  const activePhotoCategory = normalizePhotoCategory(activePhoto?.photoCategory || activePhoto?.category);
+  const engineerContractDrawing = user?.role === "engineer" && activePhotoCategory === "\uACC4\uC57D\uB3C4\uBA74";
+  const canDirectDelete = !!activePhoto &&
+    !activePhotoDeleted &&
+    !activePhotoDeleteRequested &&
+    !jobCompleted &&
+    !jobLocked &&
+    !engineerContractDrawing &&
+    (isUploader || isAssignedEngineer);
+  const canRequestDelete = !!activePhoto &&
+    jobCompleted &&
+    !jobLocked &&
+    !activePhotoDeleted &&
+    !activePhotoDeleteRequested &&
+    !engineerContractDrawing &&
+    (isUploader || isAssignedEngineer);
   const canResetActiveCategory = !!onPreviewResetCategory &&
     !!onResetCategory &&
     activeCategory !== ALL_TAB &&
     !jobCompleted &&
     !jobLocked &&
+    !(user?.role === "engineer" && activeCategory === "\uACC4\uC57D\uB3C4\uBA74") &&
     (user?.role === "partner" || user?.role === "engineer");
   const deleteActionBusy = !!deleteActionState.type;
   const hasDeleteActionArea = !!activePhoto && (
     activePhotoDeleteRequested ||
     !!deleteActionState.message ||
     !!deleteActionState.error ||
+    canDirectDelete ||
     canRequestDelete
   );
   const handleDeleteRequest = async () => {
     if (!activePhoto || !onRequestDelete || deleteActionBusy) return;
-    const reason = window.prompt("삭제요청 사유를 입력해 주세요.", "") || "";
+    const directDelete = canDirectDelete;
+    if (!directDelete && !canRequestDelete) return;
+    const reason = directDelete ? "" : (window.prompt("삭제요청 사유를 입력해 주세요.", "") || "");
+    if (directDelete && !window.confirm("현재 보고 있는 사진 1장을 삭제 처리할까요?")) return;
     try {
-      setDeleteActionState({ type: "request", message: "삭제요청 중입니다...", error: "" });
-      await onRequestDelete(activePhoto, reason);
-      const message = "삭제요청이 접수되었습니다. 관리자가 확인 후 처리합니다.";
+      setDeleteActionState({
+        type: directDelete ? "delete" : "request",
+        message: directDelete ? "사진 삭제 처리 중입니다..." : "삭제요청 중입니다...",
+        error: "",
+      });
+      await onRequestDelete(activePhoto, reason, directDelete ? "delete" : "request");
+      const message = directDelete ? "사진이 삭제 처리되었습니다." : "삭제요청이 접수되었습니다. 관리자가 확인 후 처리합니다.";
       setDeleteActionState({ type: "", message: message, error: "" });
       window.alert(message);
     } catch (err) {
-      const message = err?.message || "삭제요청에 실패했습니다.";
+      const message = err?.message || (directDelete ? "사진 삭제에 실패했습니다." : "삭제요청에 실패했습니다.");
       setDeleteActionState({ type: "", message: "", error: message });
       window.alert(message);
     }
@@ -3249,8 +3302,10 @@ function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false,
                 </div>
                 {deleteActionState.message ? <div className="mt-3 rounded-xl bg-sky-400/15 px-3 py-2 text-xs font-black text-sky-100">{deleteActionState.message}</div> : null}
                 {deleteActionState.error ? <div className="mt-3 rounded-xl bg-rose-400/15 px-3 py-2 text-xs font-black text-rose-100">{deleteActionState.error}</div> : null}
-                {canRequestDelete ? (
-                  <button type="button" disabled={deleteActionBusy} onClick={handleDeleteRequest} className="mt-3 rounded-xl bg-amber-300 px-3 py-2 text-xs font-black text-amber-950 disabled:opacity-60">{deleteActionState.type === "request" ? "삭제요청 중..." : "삭제요청"}</button>
+                {canDirectDelete || canRequestDelete ? (
+                  <button type="button" disabled={deleteActionBusy} onClick={handleDeleteRequest} className="mt-3 rounded-xl bg-amber-300 px-3 py-2 text-xs font-black text-amber-950 disabled:opacity-60">
+                    {deleteActionState.type === "delete" ? "삭제 처리 중..." : deleteActionState.type === "request" ? "삭제요청 중..." : canDirectDelete ? "삭제" : "삭제요청"}
+                  </button>
                 ) : null}
               </div>
             ) : null}
