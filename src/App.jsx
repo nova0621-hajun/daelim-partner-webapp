@@ -1354,6 +1354,87 @@ export default function PartnerInstallerPortal() {
     }
   };
 
+  const applyEngineerAssignment = async (job, assignment = {}) => {
+    if (!job || !user || user.role !== "partner") return { success: false };
+
+    if (isJobLocked(job)) {
+      setActionMessage("관리자가 잠근 현장입니다. 잠금 해제 후 이용할 수 있습니다.");
+      return { success: false };
+    }
+
+    const nextEngineerName = normalizeEngineerName(assignment.engineerName);
+    const currentEngineerName = normalizeEngineerName(job.engineer);
+    const assignMainEngineer = Boolean(nextEngineerName && nextEngineerName !== currentEngineerName);
+    const companionNames = (Array.isArray(assignment.companionEngineerNames) ? assignment.companionEngineerNames : [])
+      .map(normalizeEngineerName)
+      .filter(Boolean);
+
+    if (!assignMainEngineer && !companionNames.length) {
+      setActionMessage("변경할 기사 배정 항목이 없습니다.");
+      return { success: false };
+    }
+
+    const photoPayload = buildPhotoJobPayload(job, job.month || job.sheet || "");
+    const key = jobKey(job);
+
+    setAssigningJobId(key);
+    setCompanionSavingJobId(key);
+    setActionMessage("");
+
+    try {
+      const selectedEngineer = engineerOptions.find((item) => normalizeEngineerName(item.name) === nextEngineerName);
+      const result = await apiPost({
+        action: "applyPartnerEngineerAssignment",
+        ...partnerSessionPreferredAuthPayload(user, partnerAuthPassword || user.authPassword || ""),
+        month: job.month || job.sheet || "",
+        siteId: photoPayload.siteId || "",
+        orderNo: photoPayload.orderNo || "",
+        assignMainEngineer,
+        engineerName: assignMainEngineer ? nextEngineerName : "",
+        engineerPhone: assignMainEngineer ? selectedEngineer?.phone || "" : "",
+        companions: companionNames.map((name) => {
+          const companionEngineer = engineerOptions.find((item) => normalizeEngineerName(item.name) === name);
+          return {
+            engineerName: name,
+            engineerPhone: companionEngineer?.phone || "",
+          };
+        }),
+      });
+
+      if (!result.success) {
+        setActionMessage(result.message || "기사 배정 적용에 실패했습니다.");
+        return result;
+      }
+
+      const addedCount = Number(result.addedCount || 0);
+      if (result.mainEngineerChanged && addedCount > 0) {
+        setActionMessage(`기사 배정이 완료되었습니다. 메인기사 1명, 동행기사 ${addedCount}명 반영`);
+      } else if (result.mainEngineerChanged) {
+        setActionMessage("메인기사 배정이 완료되었습니다.");
+      } else if (addedCount > 0) {
+        setActionMessage(`동행기사 ${addedCount}명 추가가 완료되었습니다.`);
+      } else {
+        setActionMessage(result.message || "변경할 기사 배정 항목이 없습니다.");
+      }
+
+      try {
+        await refreshJobMonthNow(job);
+      } catch (refreshError) {
+        console.error(refreshError);
+        refreshJobsQuietly(1500);
+      }
+
+      return result;
+    } catch (err) {
+      console.error(err);
+      setActionMessage(err.message || "기사 배정 적용 API 연결 실패");
+      return { success: false, message: err.message };
+    } finally {
+      setAssigningJobId("");
+      setCompanionSavingJobId("");
+    }
+  };
+
   const removeCompanionEngineer = async (job, companionsToRemove) => {
     const targets = Array.isArray(companionsToRemove) ? companionsToRemove : [companionsToRemove];
     if (!job || !targets.length || !user || user.role !== "partner") return;
@@ -2459,8 +2540,7 @@ export default function PartnerInstallerPortal() {
             setActionMessage("");
             setHistoryJob(detailJob);
           }}
-          onAssign={assignInstaller}
-          onAddCompanion={addCompanionEngineer}
+          onApplyAssignment={applyEngineerAssignment}
           onRemoveCompanion={removeCompanionEngineer}
           engineerOptions={engineerOptions}
           assigning={assigningJobId === jobKey(detailJob)}

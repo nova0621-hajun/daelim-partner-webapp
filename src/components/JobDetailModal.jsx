@@ -123,7 +123,7 @@ function PhoneLink({ value }) {
   return <a href={`tel:${onlyDigits(phone)}`} className="font-black text-blue-700 underline decoration-blue-300 underline-offset-2"><Phone className="mr-1 inline h-3.5 w-3.5" />{phone}</a>;
 }
 
-export default function JobDetailModal({ job, user, onClose, onUpload, onHistory, onAssign, onAddCompanion, onRemoveCompanion, engineerOptions = [], assigning = false, companionSaving = false, completing = false, actionMessage = "", onComplete, onCopyAddress, addressCopied = false, onPhotoView }) {
+export default function JobDetailModal({ job, user, onClose, onUpload, onHistory, onApplyAssignment, onRemoveCompanion, engineerOptions = [], assigning = false, companionSaving = false, completing = false, actionMessage = "", onComplete, onCopyAddress, addressCopied = false, onPhotoView }) {
   const [engineer, setInstaller] = useState(isUnassignedEngineerValue(job.engineer) ? "" : job.engineer || "");
   const [selectedCompanionEngineers, setSelectedCompanionEngineers] = useState([]);
   const [selectedRemoveCompanionIds, setSelectedRemoveCompanionIds] = useState([]);
@@ -142,10 +142,26 @@ export default function JobDetailModal({ job, user, onClose, onUpload, onHistory
   const companions = activeCompanions(job);
   const companionNames = companions.map((companion) => normalizeEngineerName(companion.engineerName));
   const mainEngineerName = normalizeEngineerName(job.engineer);
+  const selectedMainEngineerName = normalizeEngineerName(engineer);
+  const companionMainBlockName = selectedMainEngineerName || mainEngineerName;
+  const assignmentSaving = assigning || companionSaving;
+  const selectedAddCompanionEngineers = selectedCompanionEngineers.filter((name) => {
+    const normalizedName = normalizeEngineerName(name);
+    return normalizedName && normalizedName !== selectedMainEngineerName;
+  });
+  const hasMainEngineerChange = Boolean(selectedMainEngineerName && selectedMainEngineerName !== mainEngineerName);
+  const hasCompanionAdd = selectedAddCompanionEngineers.length > 0;
+  const canApplyAssignment = canAssignEngineer && !locked && !assignmentSaving && (hasMainEngineerChange || hasCompanionAdd);
+
+  useEffect(() => {
+    if (!selectedMainEngineerName) return;
+    setSelectedCompanionEngineers((current) => current.filter((name) => normalizeEngineerName(name) !== selectedMainEngineerName));
+  }, [selectedMainEngineerName]);
+
   const companionOptions = engineerOptions.filter((item) => {
     const name = normalizeEngineerName(item.name);
     if (!name) return false;
-    if (name === mainEngineerName) return false;
+    if (name === companionMainBlockName) return false;
     return !companionNames.includes(name);
   });
   const toggleCompanionEngineer = (name) => {
@@ -181,15 +197,11 @@ export default function JobDetailModal({ job, user, onClose, onUpload, onHistory
         canAssignEngineer ? (
           <div className="mt-4 rounded-3xl border border-blue-100 bg-blue-50 p-4">
             <h3 className="font-black text-blue-900">시공기사 배정</h3>
-            <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
-              <select value={engineer} onChange={(e) => setInstaller(e.target.value)} disabled={locked || assigning} className="rounded-2xl border bg-white px-3 py-3 text-sm font-bold disabled:opacity-60">
+            <div className="mt-3">
+              <select value={engineer} onChange={(e) => setInstaller(e.target.value)} disabled={locked || assignmentSaving} className="w-full rounded-2xl border bg-white px-3 py-3 text-sm font-bold disabled:opacity-60">
                 <option value="">시공기사 선택</option>
                 {engineerNames.map((name) => <option key={name} value={name}>{name}</option>)}
               </select>
-              <button onClick={() => engineer && onAssign(job, engineer)} disabled={locked || !engineer || assigning} className="flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-sm font-black text-white disabled:bg-blue-300">
-                {assigning ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                {locked ? "잠금" : assigning ? "저장 중" : "배정"}
-              </button>
             </div>
           </div>
         ) : null
@@ -260,7 +272,7 @@ export default function JobDetailModal({ job, user, onClose, onUpload, onHistory
                             type="checkbox"
                             checked={checked}
                             onChange={() => toggleCompanionEngineer(name)}
-                            disabled={locked || companionSaving}
+                            disabled={locked || assignmentSaving}
                             className="h-4 w-4 rounded border-violet-300 text-violet-600"
                           />
                           <span className="min-w-0 flex-1 truncate">{item.name}</span>
@@ -275,15 +287,18 @@ export default function JobDetailModal({ job, user, onClose, onUpload, onHistory
                 <button
                   type="button"
                   onClick={async () => {
-                    if (!selectedCompanionEngineers.length) return;
-                    await onAddCompanion?.(job, selectedCompanionEngineers);
-                    setSelectedCompanionEngineers([]);
+                    if (!canApplyAssignment) return;
+                    const result = await onApplyAssignment?.(job, {
+                      engineerName: selectedMainEngineerName,
+                      companionEngineerNames: selectedAddCompanionEngineers,
+                    });
+                    if (result?.success) setSelectedCompanionEngineers([]);
                   }}
-                  disabled={locked || companionSaving || !selectedCompanionEngineers.length}
+                  disabled={!canApplyAssignment}
                   className="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl bg-violet-600 px-4 py-3 text-sm font-black text-white disabled:bg-violet-300"
                 >
-                  {companionSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                  {companionSaving ? "처리중" : "선택한 동행기사 추가"}
+                  {assignmentSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  {assignmentSaving ? "저장 중..." : "기사 배정 적용"}
                 </button>
               </div>
             </div>
