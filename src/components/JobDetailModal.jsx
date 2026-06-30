@@ -127,11 +127,13 @@ export default function JobDetailModal({ job, user, onClose, onUpload, onHistory
   const [engineer, setInstaller] = useState(isUnassignedEngineerValue(job.engineer) ? "" : job.engineer || "");
   const [selectedCompanionEngineers, setSelectedCompanionEngineers] = useState([]);
   const [selectedRemoveCompanionIds, setSelectedRemoveCompanionIds] = useState([]);
+  const [assignmentResult, setAssignmentResult] = useState(null);
 
   useEffect(() => {
     setInstaller(isUnassignedEngineerValue(job.engineer) ? "" : job.engineer || "");
     setSelectedCompanionEngineers([]);
     setSelectedRemoveCompanionIds([]);
+    setAssignmentResult(null);
   }, [job.engineer, job.rowNumber, job.month]);
 
   const engineerNames = engineerOptions.map((item) => item.name);
@@ -288,11 +290,29 @@ export default function JobDetailModal({ job, user, onClose, onUpload, onHistory
                   type="button"
                   onClick={async () => {
                     if (!canApplyAssignment) return;
+                    const beforeMainEngineerName = mainEngineerName;
+                    const afterMainEngineerName = selectedMainEngineerName;
+                    const requestedCompanionNames = [...selectedAddCompanionEngineers];
                     const result = await onApplyAssignment?.(job, {
                       engineerName: selectedMainEngineerName,
                       companionEngineerNames: selectedAddCompanionEngineers,
                     });
-                    if (result?.success) setSelectedCompanionEngineers([]);
+                    if (result?.success) {
+                      const addedNames = Array.isArray(result.added)
+                        ? result.added.map((item) => normalizeEngineerName(item?.engineerName)).filter(Boolean)
+                        : requestedCompanionNames;
+                      const mainChanged = result.mainEngineerChanged === true && afterMainEngineerName && afterMainEngineerName !== beforeMainEngineerName;
+
+                      if (mainChanged || addedNames.length) {
+                        setAssignmentResult({
+                          beforeMainEngineerName,
+                          afterMainEngineerName,
+                          addedCompanionNames: addedNames,
+                        });
+                      }
+
+                      setSelectedCompanionEngineers([]);
+                    }
                   }}
                   disabled={!canApplyAssignment}
                   className="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl bg-violet-600 px-4 py-3 text-sm font-black text-white disabled:bg-violet-300"
@@ -405,6 +425,33 @@ export default function JobDetailModal({ job, user, onClose, onUpload, onHistory
             {locked ? "잠금" : isComplete ? "완료됨" : !completePhotoReady ? "사진필요" : completing ? "저장 중" : "완료보고"}
           </button>
         </div>
+
+        {assignmentResult ? (
+          <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 p-4">
+            <div className="w-full max-w-sm rounded-[2rem] bg-white p-5 shadow-2xl">
+              <h3 className="text-lg font-black text-slate-900">기사 배정 완료</h3>
+              <div className="mt-4 space-y-3 text-sm font-bold text-slate-700">
+                {assignmentResult.afterMainEngineerName && assignmentResult.afterMainEngineerName !== assignmentResult.beforeMainEngineerName ? (
+                  <div className="rounded-2xl bg-blue-50 px-4 py-3 text-blue-900">
+                    메인기사: {assignmentResult.beforeMainEngineerName || "미배정"} → {assignmentResult.afterMainEngineerName}
+                  </div>
+                ) : null}
+                {assignmentResult.addedCompanionNames?.length ? (
+                  <div className="rounded-2xl bg-violet-50 px-4 py-3 text-violet-900">
+                    동행기사 추가: {assignmentResult.addedCompanionNames.join(", ")}
+                  </div>
+                ) : null}
+              </div>
+              <button
+                type="button"
+                onClick={() => setAssignmentResult(null)}
+                className="mt-5 w-full rounded-2xl bg-slate-900 px-4 py-3 text-sm font-black text-white"
+              >
+                확인
+              </button>
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   );
