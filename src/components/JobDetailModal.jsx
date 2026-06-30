@@ -249,8 +249,21 @@ export default function JobDetailModal({ job, user, onClose, onUpload, onHistory
                   type="button"
                   onClick={async () => {
                     if (!selectedRemoveCompanions.length) return;
-                    await onRemoveCompanion?.(job, selectedRemoveCompanions);
-                    setSelectedRemoveCompanionIds([]);
+                    const requestedRemoveNames = selectedRemoveCompanions.map((companion) => normalizeEngineerName(companion.engineerName)).filter(Boolean);
+                    const result = await onRemoveCompanion?.(job, selectedRemoveCompanions);
+                    if (result?.success) {
+                      const removedNames = Array.isArray(result.removed)
+                        ? result.removed.map((item) => normalizeEngineerName(item?.engineerName)).filter(Boolean)
+                        : requestedRemoveNames;
+
+                      if (removedNames.length) {
+                        setAssignmentResult({
+                          removedCompanionNames: removedNames,
+                        });
+                      }
+
+                      setSelectedRemoveCompanionIds([]);
+                    }
                   }}
                   disabled={locked || companionSaving || !selectedRemoveCompanions.length}
                   className="flex w-full items-center justify-center gap-2 rounded-2xl border border-violet-200 bg-white px-4 py-3 text-sm font-black text-violet-700 disabled:opacity-50"
@@ -301,7 +314,7 @@ export default function JobDetailModal({ job, user, onClose, onUpload, onHistory
                       const addedNames = Array.isArray(result.added)
                         ? result.added.map((item) => normalizeEngineerName(item?.engineerName)).filter(Boolean)
                         : requestedCompanionNames;
-                      const mainChanged = result.mainEngineerChanged === true && afterMainEngineerName && afterMainEngineerName !== beforeMainEngineerName;
+                      const mainChanged = Boolean(afterMainEngineerName && afterMainEngineerName !== beforeMainEngineerName);
 
                       if (mainChanged || addedNames.length) {
                         setAssignmentResult({
@@ -439,6 +452,11 @@ export default function JobDetailModal({ job, user, onClose, onUpload, onHistory
                 {assignmentResult.addedCompanionNames?.length ? (
                   <div className="rounded-2xl bg-violet-50 px-4 py-3 text-violet-900">
                     동행기사 추가: {assignmentResult.addedCompanionNames.join(", ")}
+                  </div>
+                ) : null}
+                {assignmentResult.removedCompanionNames?.length ? (
+                  <div className="rounded-2xl bg-rose-50 px-4 py-3 text-rose-900">
+                    동행기사 해제: {assignmentResult.removedCompanionNames.join(", ")}
                   </div>
                 ) : null}
               </div>

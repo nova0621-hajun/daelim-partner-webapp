@@ -1437,9 +1437,9 @@ export default function PartnerInstallerPortal() {
 
   const removeCompanionEngineer = async (job, companionsToRemove) => {
     const targets = Array.isArray(companionsToRemove) ? companionsToRemove : [companionsToRemove];
-    if (!job || !targets.length || !user || user.role !== "partner") return;
+    if (!job || !targets.length || !user || user.role !== "partner") return { success: false };
 
-    if (!window.confirm("선택한 동행기사를 해제하시겠습니까?")) return;
+    if (!window.confirm("선택한 동행기사를 해제하시겠습니까?")) return { success: false };
 
     const photoPayload = buildPhotoJobPayload(job, job.month || job.sheet || "");
     const key = jobKey(job);
@@ -1463,14 +1463,16 @@ export default function PartnerInstallerPortal() {
 
       if (!result.success) {
         setActionMessage(result.message || "동행기사 해제에 실패했습니다.");
-        return;
+        return result;
       }
 
       setActionMessage(result.partialFailure || Number(result.failedCount || 0) > 0 ? "일부 동행기사 처리에 실패했습니다." : "동행기사를 해제했습니다.");
       await refreshJobMonthNow(job);
+      return result;
     } catch (err) {
       console.error(err);
       setActionMessage(err.message || "동행기사 해제 API 연결 실패");
+      return { success: false, message: err.message };
     } finally {
       setCompanionSavingJobId("");
     }
