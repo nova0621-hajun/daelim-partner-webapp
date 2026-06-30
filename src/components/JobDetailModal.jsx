@@ -136,7 +136,11 @@ export default function JobDetailModal({ job, user, onClose, onUpload, onHistory
     setAssignmentResult(null);
   }, [job.engineer, job.rowNumber, job.month]);
 
-  const engineerNames = engineerOptions.map((item) => item.name);
+  const currentEngineerName = isUnassignedEngineerValue(job.engineer) ? "" : normalizeEngineerName(job.engineer);
+  const engineerNames = Array.from(new Set([
+    ...engineerOptions.map((item) => normalizeEngineerName(item.name)).filter(Boolean),
+    currentEngineerName,
+  ].filter(Boolean)));
   const isComplete = job.status === "시공완료";
   const locked = isJobLocked(job);
   const completePhotoReady = hasCompletionPhoto(job);

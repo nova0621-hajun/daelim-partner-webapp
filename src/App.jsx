@@ -446,7 +446,10 @@ function monthPaymentTotal(rows) {
 function buildEngineerOptions(data, partnerName) {
   const installersByPartner = data?.installersByPartner || {};
   const phoneByInstaller = data?.phoneByInstaller || {};
-  const names = installersByPartner[partnerName] || [];
+  const normalizedPartnerName = String(partnerName || "").trim();
+  const partnerKey = Object.keys(installersByPartner).find((key) => String(key || "").trim() === normalizedPartnerName);
+  const fallbackPartnerKey = Array.isArray(data?.partners) && data.partners.length === 1 ? data.partners[0] : "";
+  const names = installersByPartner[partnerKey || fallbackPartnerKey || normalizedPartnerName] || [];
 
   return names
     .map((name) => ({
