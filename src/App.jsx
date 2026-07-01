@@ -2690,43 +2690,43 @@ function MonthlyConstructionCalendar({ jobs = [], selectedMonth = "", selectedDa
                   ? "border-rose-300 bg-rose-50"
                   : cell.hasRefinishing
                     ? "border-orange-300 bg-orange-50"
-                    : cell.hasCompleted
-                      ? "border-blue-300 bg-blue-50"
-                      : cell.hasLocked
-                        ? "border-slate-400 bg-slate-100"
+                    : cell.hasLocked
+                      ? "border-slate-400 bg-slate-100"
+                      : cell.hasCompleted
+                        ? "border-blue-300 bg-blue-50"
                         : "border-slate-100 bg-slate-50"
                 : "border-slate-50 bg-white text-slate-300"
-            } ${cell.rows.length ? (cell.hasUnassigned ? "hover:border-rose-400 hover:bg-rose-100" : cell.hasRefinishing ? "hover:border-orange-400 hover:bg-orange-100" : cell.hasCompleted ? "hover:border-blue-400 hover:bg-blue-100" : cell.hasLocked ? "hover:border-slate-500 hover:bg-slate-200" : "hover:border-blue-200 hover:bg-blue-50") : ""} ${
+            } ${cell.rows.length ? (cell.hasUnassigned ? "hover:border-rose-400 hover:bg-rose-100" : cell.hasRefinishing ? "hover:border-orange-400 hover:bg-orange-100" : cell.hasLocked ? "hover:border-slate-500 hover:bg-slate-200" : cell.hasCompleted ? "hover:border-blue-400 hover:bg-blue-100" : "hover:border-blue-200 hover:bg-blue-50") : ""} ${
               selectedDate === cell.key
                 ? cell.hasUnassigned
                   ? "border-rose-500 bg-rose-100 ring-2 ring-rose-200 hover:border-rose-500 hover:bg-rose-100"
                   : cell.hasRefinishing
                     ? "border-orange-500 bg-orange-100 ring-2 ring-orange-200 hover:border-orange-500 hover:bg-orange-100"
-                    : cell.hasCompleted
-                      ? "border-blue-500 bg-blue-100 ring-2 ring-blue-200"
-                      : cell.hasLocked
-                        ? "border-slate-600 bg-slate-200 ring-2 ring-slate-300"
+                    : cell.hasLocked
+                      ? "border-slate-600 bg-slate-200 ring-2 ring-slate-300"
+                      : cell.hasCompleted
+                        ? "border-blue-500 bg-blue-100 ring-2 ring-blue-200"
                         : "border-blue-500 bg-blue-50 ring-2 ring-blue-200"
                 : ""
             }`}
           >
             <div className="flex items-center justify-between gap-0.5">
               <div className="flex items-center gap-1">
-                <span className={`text-xs font-black ${cell.isToday ? "rounded-full bg-blue-600 px-1.5 py-0.5 text-white" : cell.hasUnassigned ? "text-rose-700" : cell.hasRefinishing ? "text-orange-700" : cell.hasCompleted ? "text-blue-700" : cell.hasLocked ? "text-slate-800" : "text-slate-600"}`}>
+                <span className={`text-xs font-black ${cell.isToday ? "rounded-full bg-blue-600 px-1.5 py-0.5 text-white" : cell.hasUnassigned ? "text-rose-700" : cell.hasRefinishing ? "text-orange-700" : cell.hasLocked ? "text-slate-800" : cell.hasCompleted ? "text-blue-700" : "text-slate-600"}`}>
                   {cell.date.getDate()}
                 </span>
                 {cell.hasUnassigned ? (
                   <span className="rounded-full bg-rose-500 px-1 text-[8px] font-black leading-3 text-white">미</span>
                 ) : cell.hasRefinishing ? (
                   <span className="rounded-full bg-orange-500 px-1 text-[8px] font-black leading-3 text-white">재</span>
-                ) : cell.hasCompleted ? (
-                  <span className="rounded-full bg-blue-500 px-1 text-[8px] font-black leading-3 text-white">완</span>
                 ) : cell.hasLocked ? (
                   <span className="rounded-full bg-slate-700 px-1 text-[8px] font-black leading-3 text-white">잠</span>
+                ) : cell.hasCompleted ? (
+                  <span className="rounded-full bg-blue-500 px-1 text-[8px] font-black leading-3 text-white">완</span>
                 ) : null}
               </div>
               {cell.rows.length ? (
-                <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-black ${cell.hasUnassigned ? "bg-rose-100 text-rose-700" : cell.hasRefinishing ? "bg-orange-100 text-orange-700" : cell.hasCompleted ? "bg-blue-100 text-blue-700" : cell.hasLocked ? "bg-slate-200 text-slate-800" : "bg-blue-100 text-blue-700"}`}>
+                <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-black ${cell.hasUnassigned ? "bg-rose-100 text-rose-700" : cell.hasRefinishing ? "bg-orange-100 text-orange-700" : cell.hasLocked ? "bg-slate-200 text-slate-800" : cell.hasCompleted ? "bg-blue-100 text-blue-700" : "bg-blue-100 text-blue-700"}`}>
                   {cell.rows.length}
                 </span>
               ) : null}
@@ -2736,7 +2736,7 @@ function MonthlyConstructionCalendar({ jobs = [], selectedMonth = "", selectedDa
                 {cell.rows.slice(0, 6).map((job, dotIndex) => (
                   <span
                     key={`${cell.key}-dot-${job.rowNumber || dotIndex}-${dotIndex}`}
-                    className={`h-1.5 w-1.5 rounded-full ring-1 ring-white md:h-2 md:w-2 ${cell.hasUnassigned && (isUnassignedEngineerValue(job.engineer) || job.status === "기사배정요청") ? "bg-rose-500" : isRefinishingJob(job) ? "bg-orange-500" : isJobCompleted(job) ? "bg-blue-500" : isJobLocked(job) ? "bg-slate-700" : "bg-emerald-500"}`}
+                    className={`h-1.5 w-1.5 rounded-full ring-1 ring-white md:h-2 md:w-2 ${cell.hasUnassigned && (isUnassignedEngineerValue(job.engineer) || job.status === "기사배정요청") ? "bg-rose-500" : isRefinishingJob(job) ? "bg-orange-500" : isJobLocked(job) ? "bg-slate-700" : isJobCompleted(job) ? "bg-blue-500" : "bg-emerald-500"}`}
                   />
                 ))}
                 {cell.rows.length > 6 ? (
@@ -2746,7 +2746,7 @@ function MonthlyConstructionCalendar({ jobs = [], selectedMonth = "", selectedDa
             ) : null}
             <div className="mt-0.5 space-y-0.5 md:mt-1 md:space-y-1">
               {cell.rows.slice(0, 2).map((job) => (
-                <div key={`${cell.key}-${job.month}-${job.rowNumber}`} className={`hidden truncate rounded-lg bg-white px-1 py-0.5 text-[9px] font-black shadow-sm sm:block md:px-1.5 md:py-1 md:text-[10px] ${cell.hasUnassigned && (isUnassignedEngineerValue(job.engineer) || job.status === "기사배정요청") ? "text-rose-700" : isRefinishingJob(job) ? "text-orange-700" : isJobCompleted(job) ? "text-blue-700" : isJobLocked(job) ? "text-slate-800" : "text-slate-700"}`}>
+                <div key={`${cell.key}-${job.month}-${job.rowNumber}`} className={`hidden truncate rounded-lg bg-white px-1 py-0.5 text-[9px] font-black shadow-sm sm:block md:px-1.5 md:py-1 md:text-[10px] ${cell.hasUnassigned && (isUnassignedEngineerValue(job.engineer) || job.status === "기사배정요청") ? "text-rose-700" : isRefinishingJob(job) ? "text-orange-700" : isJobLocked(job) ? "text-slate-800" : isJobCompleted(job) ? "text-blue-700" : "text-slate-700"}`}>
                   {job.customer || "\uD604\uC7A5"}
                 </div>
               ))}
