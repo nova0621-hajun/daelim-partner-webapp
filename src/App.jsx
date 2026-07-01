@@ -1420,13 +1420,10 @@ export default function PartnerInstallerPortal() {
         setActionMessage(result.message || "변경할 기사 배정 항목이 없습니다.");
       }
 
-      try {
-        await refreshJobMonthNow(job);
-      } catch (refreshError) {
+      refreshJobMonthNow(job).catch((refreshError) => {
         console.error(refreshError);
         refreshJobsQuietly(1500);
-      }
-
+      });
       return result;
     } catch (err) {
       console.error(err);

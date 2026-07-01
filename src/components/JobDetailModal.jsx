@@ -131,10 +131,13 @@ export default function JobDetailModal({ job, user, onClose, onUpload, onHistory
 
   useEffect(() => {
     setInstaller(isUnassignedEngineerValue(job.engineer) ? "" : job.engineer || "");
+  }, [job.engineer]);
+
+  useEffect(() => {
     setSelectedCompanionEngineers([]);
     setSelectedRemoveCompanionIds([]);
     setAssignmentResult(null);
-  }, [job.engineer, job.rowNumber, job.month]);
+  }, [job.rowNumber, job.month]);
 
   const currentEngineerName = isUnassignedEngineerValue(job.engineer) ? "" : normalizeEngineerName(job.engineer);
   const engineerNames = Array.from(new Set([
