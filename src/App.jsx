@@ -2715,15 +2715,6 @@ function MonthlyConstructionCalendar({ jobs = [], selectedMonth = "", selectedDa
                 <span className={`text-xs font-black ${cell.isToday ? "rounded-full bg-blue-600 px-1.5 py-0.5 text-white" : cell.hasUnassigned ? "text-rose-700" : cell.hasRefinishing ? "text-orange-700" : cell.hasLocked ? "text-slate-800" : cell.hasCompleted ? "text-blue-700" : "text-slate-600"}`}>
                   {cell.date.getDate()}
                 </span>
-                {cell.hasUnassigned ? (
-                  <span className="rounded-full bg-rose-500 px-1 text-[8px] font-black leading-3 text-white">미</span>
-                ) : cell.hasRefinishing ? (
-                  <span className="rounded-full bg-orange-500 px-1 text-[8px] font-black leading-3 text-white">재</span>
-                ) : cell.hasLocked ? (
-                  <span className="rounded-full bg-slate-700 px-1 text-[8px] font-black leading-3 text-white">잠</span>
-                ) : cell.hasCompleted ? (
-                  <span className="rounded-full bg-blue-500 px-1 text-[8px] font-black leading-3 text-white">완</span>
-                ) : null}
               </div>
               {cell.rows.length ? (
                 <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-black ${cell.hasUnassigned ? "bg-rose-100 text-rose-700" : cell.hasRefinishing ? "bg-orange-100 text-orange-700" : cell.hasLocked ? "bg-slate-200 text-slate-800" : cell.hasCompleted ? "bg-blue-100 text-blue-700" : "bg-blue-100 text-blue-700"}`}>
