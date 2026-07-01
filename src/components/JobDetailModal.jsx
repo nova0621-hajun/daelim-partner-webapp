@@ -128,6 +128,7 @@ export default function JobDetailModal({ job, user, onClose, onUpload, onHistory
   const [selectedCompanionEngineers, setSelectedCompanionEngineers] = useState([]);
   const [selectedRemoveCompanionIds, setSelectedRemoveCompanionIds] = useState([]);
   const [assignmentResult, setAssignmentResult] = useState(null);
+  const [showCompanionCandidates, setShowCompanionCandidates] = useState(false);
 
   useEffect(() => {
     setInstaller(isUnassignedEngineerValue(job.engineer) ? "" : job.engineer || "");
@@ -137,6 +138,7 @@ export default function JobDetailModal({ job, user, onClose, onUpload, onHistory
     setSelectedCompanionEngineers([]);
     setSelectedRemoveCompanionIds([]);
     setAssignmentResult(null);
+    setShowCompanionCandidates(false);
   }, [job.rowNumber, job.month]);
 
   const currentEngineerName = isUnassignedEngineerValue(job.engineer) ? "" : normalizeEngineerName(job.engineer);
@@ -281,9 +283,26 @@ export default function JobDetailModal({ job, user, onClose, onUpload, onHistory
               ) : null}
 
               <div className="rounded-2xl border border-violet-100 bg-white p-3">
-                <p className="text-xs font-black text-violet-700">동행기사 추가</p>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="text-xs font-black text-violet-700">동행기사 추가</p>
+                    {!showCompanionCandidates && selectedAddCompanionEngineers.length ? (
+                      <p className="mt-1 text-xs font-bold text-violet-500">선택 {selectedAddCompanionEngineers.length}명</p>
+                    ) : null}
+                  </div>
+                  {companionOptions.length ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowCompanionCandidates((current) => !current)}
+                      aria-expanded={showCompanionCandidates}
+                      className="rounded-full border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-black text-violet-700"
+                    >
+                      {showCompanionCandidates ? "후보 숨기기" : `후보 보기 (${companionOptions.length}명)`}
+                    </button>
+                  ) : null}
+                </div>
                 {companionOptions.length ? (
-                  <div className="mt-2 grid gap-2">
+                  <div className={`${showCompanionCandidates ? "grid" : "hidden"} mt-2 gap-2`}>
                     {companionOptions.map((item) => {
                       const name = normalizeEngineerName(item.name);
                       const checked = selectedCompanionEngineers.includes(name);
