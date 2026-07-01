@@ -3092,6 +3092,7 @@ function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false,
   const jobLocked = isJobLocked(job);
   const activePhotoCategory = normalizePhotoCategory(activePhoto?.photoCategory || activePhoto?.category);
   const engineerContractDrawing = user?.role === "engineer" && activePhotoCategory === "\uACC4\uC57D\uB3C4\uBA74";
+  const canRequestDeleteByRole = user?.role === "partner" || (user?.role === "engineer" && (isUploader || isAssignedEngineer));
   const canDirectDelete = !!activePhoto &&
     !activePhotoDeleted &&
     !activePhotoDeleteRequested &&
@@ -3105,7 +3106,7 @@ function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false,
     !activePhotoDeleted &&
     !activePhotoDeleteRequested &&
     !engineerContractDrawing &&
-    (isUploader || isAssignedEngineer);
+    canRequestDeleteByRole;
   const canResetActiveCategory = !!onPreviewResetCategory &&
     !!onResetCategory &&
     activeCategory !== ALL_TAB &&
