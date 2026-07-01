@@ -2826,20 +2826,11 @@ function PartnerPaymentDashboard({ jobs = [], stats, paymentTotal, selectedEngin
   }, [jobs]);
 
   const summaryCards = [
-    ["\uC804\uCCB4 \uD604\uC7A5", stats.total, "today"],
     ["\uC790\uC0AC \uBC30\uC815 \uD604\uC7A5", stats.total, "today"],
     ["\uC774\uBC88\uC8FC \uC2DC\uACF5 \uC608\uC815", stats.week, "today"],
     ["\uC2DC\uACF5\uC644\uB8CC", stats.complete, "complete"],
     ["\uC644\uB8CC\uC0AC\uC9C4 \uD544\uC694", stats.completePhotoMissing, "photo"],
     ["\uC2DC\uACF5\uAE30\uC0AC \uBBF8\uBC30\uC815", stats.unassigned, "unassigned"],
-    ["\uC9C0\uAE09\uC2DC\uACF5\uBE44 \uD569\uACC4", formatMoney(paymentTotal), "today"],
-  ];
-  const itemRows = [
-    ["\uC8FC\uBC29 \uC9C0\uAE09", dashboard.itemTotals.kitchen],
-    ["\uBD99\uBC15\uC774 \uC9C0\uAE09", dashboard.itemTotals.builtIn],
-    ["\uD604\uAD00 \uC9C0\uAE09", dashboard.itemTotals.entrance],
-    ["\uCD94\uAC00 \uC9C0\uAE09", dashboard.itemTotals.extra],
-    ["\uCD1D \uC9C0\uAE09", dashboard.itemTotals.total],
   ];
 
   return (
@@ -2856,7 +2847,16 @@ function PartnerPaymentDashboard({ jobs = [], stats, paymentTotal, selectedEngin
         ) : null}
       </div>
 
-      <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
+      <button
+        type="button"
+        onClick={() => onSelectSummary?.("today")}
+        className="w-full rounded-3xl border border-emerald-100 bg-emerald-50 p-4 text-left active:scale-[0.99] md:p-5"
+      >
+        <p className="text-xs font-black text-emerald-600">{"\uC9C0\uAE09\uC2DC\uACF5\uBE44 \uD569\uACC4"}</p>
+        <p className="mt-2 text-3xl font-black text-slate-900 md:text-4xl">{formatMoney(paymentTotal)}</p>
+      </button>
+
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
         {summaryCards.map(([label, value, tab]) => (
           <button key={label} type="button" onClick={() => onSelectSummary?.(tab)} className="rounded-2xl border border-slate-100 bg-slate-50 p-3 text-left active:scale-[0.99]">
             <p className="text-[11px] font-black text-slate-400">{label}</p>
@@ -2865,22 +2865,9 @@ function PartnerPaymentDashboard({ jobs = [], stats, paymentTotal, selectedEngin
         ))}
       </div>
 
-      <div className="grid gap-3 md:grid-cols-2">
-        <div className="rounded-2xl border border-slate-100 p-3">
-          <h3 className="text-sm font-black text-slate-900">{"\uC544\uC774\uD15C\uBCC4 \uC9C0\uAE09\uC2DC\uACF5\uBE44"}</h3>
-          <div className="mt-3 space-y-2">
-            {itemRows.map(([label, value]) => (
-              <div key={label} className="flex items-center justify-between gap-3 text-sm">
-                <span className="font-bold text-slate-500">{label}</span>
-                <span className="font-black text-slate-900">{formatMoney(value)}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-slate-100 p-3">
+      <div className="rounded-2xl border border-slate-100 p-3 md:p-4">
           <h3 className="text-sm font-black text-slate-900">{"\uC2DC\uACF5\uAE30\uC0AC\uBCC4 \uC9C0\uAE09\uC2DC\uACF5\uBE44"}</h3>
-          <div className="mt-3 space-y-2">
+          <div className="mt-3 grid gap-2 md:grid-cols-2">
             {dashboard.engineerRows.length ? dashboard.engineerRows.map((row) => (
               <button
                 key={row.name}
@@ -2902,7 +2889,6 @@ function PartnerPaymentDashboard({ jobs = [], stats, paymentTotal, selectedEngin
               </div>
             )}
           </div>
-        </div>
       </div>
     </section>
   );
