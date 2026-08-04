@@ -4,6 +4,7 @@ import {
   CalendarDays,
   CheckCircle2,
   ClipboardList,
+  Download,
   Loader2,
   Phone,
   ShieldCheck,
@@ -25,6 +26,10 @@ import {
   onlyDigits,
   parseJobDate,
 } from "./utils/partnerUtils";
+import {
+  buildPartnerPaymentCsv,
+  sanitizeCsvFileNamePart,
+} from "./utils/partnerPaymentCsv";
 import MonthFilter from "./components/MonthFilter";
 import PortalHeader from "./components/PortalHeader";
 import LoginForm from "./components/LoginForm";
@@ -565,6 +570,8 @@ export default function PartnerInstallerPortal() {
   const [uploadProgress, setUploadProgress] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const [actionMessage, setActionMessage] = useState("");
+  const [csvDownloading, setCsvDownloading] = useState(false);
+  const [csvMessage, setCsvMessage] = useState("");
   const [copiedAddressJobId, setCopiedAddressJobId] = useState("");
   const [engineerRequestForm, setEngineerRequestForm] = useState({ name: "", phone: "" });
   const [engineerRequestLoading, setEngineerRequestLoading] = useState(false);
@@ -762,6 +769,53 @@ export default function PartnerInstallerPortal() {
     if (user?.role !== "partner") return 0;
     return monthPaymentTotal(filteredJobs);
   }, [filteredJobs, user]);
+
+  const downloadPartnerPaymentCsv = async () => {
+    if (csvDownloading || user?.role !== "partner") return;
+    if (selectedMonth === "all") {
+      setCsvMessage("다운로드할 월을 먼저 선택해 주세요.");
+      return;
+    }
+
+    setCsvDownloading(true);
+    setCsvMessage("");
+    try {
+      const result = await apiPost({
+        action: "getPartnerPaymentCsvData",
+        sessionToken: String(user?.sessionToken || "").trim(),
+        month: selectedMonth,
+        rowNumbers: filteredJobs
+          .map((job) => Number(job.rowNumber))
+          .filter((rowNumber) => Number.isInteger(rowNumber) && rowNumber > 0),
+      });
+
+      if (!result.success) {
+        throw new Error(result.message || "CSV 데이터를 불러오지 못했습니다.");
+      }
+
+      const rows = Array.isArray(result.rows) ? result.rows : [];
+      if (!rows.length) {
+        setCsvMessage("현재 조건에 다운로드할 데이터가 없습니다.");
+        return;
+      }
+
+      const csv = buildPartnerPaymentCsv(rows);
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `실지급시공비_${selectedMonth}_${sanitizeCsvFileNamePart(user.partnerName)}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error(err);
+      setCsvMessage(err.message || "CSV 다운로드 중 오류가 발생했습니다.");
+    } finally {
+      setCsvDownloading(false);
+    }
+  };
 
   useEffect(() => {
     setSelectedEngineerFilter("");
@@ -2382,6 +2436,20 @@ export default function PartnerInstallerPortal() {
           totalCount={visibleJobs.length}
           jobCounts={loadedMonthCounts}
         />
+        {user.role === "partner" ? (
+          <div className="flex flex-col items-stretch gap-2 sm:items-end">
+            <button
+              type="button"
+              onClick={downloadPartnerPaymentCsv}
+              disabled={csvDownloading}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-emerald-200 bg-white px-4 py-3 text-sm font-black text-emerald-700 shadow-sm disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+            >
+              {csvDownloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+              {csvDownloading ? "CSV 준비 중" : "CSV 다운로드"}
+            </button>
+            {csvMessage ? <p className="text-xs font-bold text-amber-700">{csvMessage}</p> : null}
+          </div>
+        ) : null}
         <MonthlyConstructionCalendar
           jobs={monthVisibleJobs}
           selectedMonth={selectedMonth}

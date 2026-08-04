@@ -17,3 +17,9 @@ C:\Users\Admin\Documents\Codex\daelim-install-webapp\docs
 5. `project-structure.md` - 전체 웹앱 구조
 
 파트너 포털 코드 수정은 이 저장소에서 진행하지만, 작업 로그와 인수인계 문서는 메인 저장소 docs에 남깁니다.
+# 지급시공비 CSV 다운로드
+
+- `partner` 계정은 월과 현재 화면 필터에 해당하는 본인 협력사 현장을 CSV로 내려받을 수 있습니다.
+- `engineer` 계정에는 다운로드 버튼이 표시되지 않으며 서버 API도 접근을 거부합니다.
+- CSV는 UTF-8 BOM과 13개 허용 필드만 사용합니다. 데이터가 없으면 파일을 만들지 않습니다.
+- 운영 반영에는 파트너 프런트엔드 배포와 Apps Script 새 버전 배포가 모두 필요합니다.
