@@ -1,3 +1,5 @@
+import { formatCompanionEngineerNames } from "./companionEngineerNames.js";
+
 export const PARTNER_PAYMENT_CSV_HEADERS = [
   "월",
   "시공일",
@@ -5,6 +7,7 @@ export const PARTNER_PAYMENT_CSV_HEADERS = [
   "현장주소",
   "담당자",
   "시공기사",
+  "동행기사",
   "주방 지급",
   "붙박이 지급",
   "현관 지급",
@@ -36,6 +39,7 @@ export function buildPartnerPaymentCsv(rows = []) {
     row.siteAddress,
     row.salesManagerName,
     row.engineerName,
+    formatCompanionEngineerNames(row.companionEngineerNames, row.engineerName),
     row.kitchenPayment,
     row.storagePayment,
     row.entrancePayment,
