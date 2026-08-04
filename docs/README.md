@@ -5,7 +5,7 @@
 전체 프로젝트 문서 기준은 아래 저장소를 사용합니다.
 
 ```text
-C:\Users\Admin\Documents\Codex\daelim-install-webapp\docs
+C:\Users\Daelim\Documents\daelim-install-webapp\docs
 ```
 
 주요 문서:
@@ -21,5 +21,5 @@ C:\Users\Admin\Documents\Codex\daelim-install-webapp\docs
 
 - `partner` 계정은 월과 현재 화면 필터에 해당하는 본인 협력사 현장을 CSV로 내려받을 수 있습니다.
 - `engineer` 계정에는 다운로드 버튼이 표시되지 않으며 서버 API도 접근을 거부합니다.
-- CSV는 UTF-8 BOM과 13개 허용 필드만 사용합니다. 데이터가 없으면 파일을 만들지 않습니다.
-- 운영 반영에는 파트너 프런트엔드 배포와 Apps Script 새 버전 배포가 모두 필요합니다.
+- CSV는 UTF-8 BOM과 14개 허용 필드만 사용합니다. `시공기사` 다음에 활성 `동행기사`를 표시하며, 데이터가 없으면 파일을 만들지 않습니다.
+- 파트너 프런트엔드와 Apps Script 반영 후 실제 다운로드 및 동행기사 표시 확인이 완료되었습니다.
