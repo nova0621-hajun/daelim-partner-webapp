@@ -1,3 +1,5 @@
+import { recordApiClientPerformance, withClientCorrelation } from "../utils/clientPerformance.js";
+
 export const WEBAPP_URL =
   "https://script.google.com/macros/s/AKfycbzunWIU75WOPAnZLS9MGqgLLJ9-P4P1f59gNpggLcWcEGs_P0NArHOLdKNwwPQGekMewg/exec";
 
@@ -85,19 +87,17 @@ export function stripPartnerPasswordFieldsForSessionAction(payload) {
 }
 
 export async function apiPost(payload) {
-  const requestPayload = stripPartnerPasswordFieldsForSessionAction(payload);
-  const response = await fetch(WEBAPP_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "text/plain;charset=utf-8",
-    },
-    body: JSON.stringify(requestPayload),
-  });
-
-  const text = await response.text();
-
+  const requestPayload = withClientCorrelation(stripPartnerPasswordFieldsForSessionAction(payload));
+  const startedAt = globalThis.performance?.now?.() ?? Date.now();
   try {
+    const response = await fetch(WEBAPP_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify(requestPayload),
+    });
+    const text = await response.text();
     const data = JSON.parse(text);
+    recordApiClientPerformance({ endpoint: WEBAPP_URL, appType: "direct_portal", payload: requestPayload, response: data, startedAt });
     if (data?.success === false) {
       console.warn("[partner-api] failed", { action: requestPayload?.action || "", code: data.code || "", message: data.message || "" });
       if (data?.code === "SESSION_EXPIRED") {
@@ -106,7 +106,8 @@ export async function apiPost(payload) {
     }
     return data;
   } catch (err) {
-    throw new Error(`API ?묐떟 ?뺤떇 ?ㅻ쪟: ${text.slice(0, 160)}`);
+    recordApiClientPerformance({ endpoint: WEBAPP_URL, appType: "direct_portal", payload: requestPayload, error: err, startedAt });
+    throw err;
   }
 }
 

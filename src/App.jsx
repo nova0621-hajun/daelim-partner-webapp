@@ -18,7 +18,9 @@ import {
   partnerSessionPreferredAuthPayload,
   readPartnerSession,
   writePartnerSession,
+  WEBAPP_URL,
 } from "./api/partnerApi";
+import { createCorrelationId, startClientPerformance } from "./utils/clientPerformance";
 import {
   formatMoney,
   formatPhone,
@@ -42,6 +44,11 @@ import EngineerAccountRequestPanel from "./components/EngineerAccountRequestForm
 import JobDetailModal from "./components/JobDetailModal";
 
 const R2_PUBLIC_BASE_URL = "https://daelim-r2-photo-worker.nova0621.workers.dev";
+const appBootPerformance = startClientPerformance("app_boot_to_login_ready", {
+  endpoint: WEBAPP_URL,
+  appType: "direct_portal",
+  route: "login",
+});
 const buildR2FastViewUrl = (storageKey) =>
   storageKey ? `${R2_PUBLIC_BASE_URL}/fast-view?key=${encodeURIComponent(storageKey)}` : "";
 const isLegacyRowIdentity = (value) =>
@@ -532,6 +539,10 @@ function FieldLabel({ children }) {
 }
 
 export default function PartnerInstallerPortal() {
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => appBootPerformance.finish({ response: { success: true } }));
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
   const [screen, setScreen] = useState("login");
   const [loginId, setLoginId] = useState("");
   const [loginPw, setLoginPw] = useState("");
@@ -561,6 +572,7 @@ export default function PartnerInstallerPortal() {
   const [photoViewerError, setPhotoViewerError] = useState("");
   const [photoViewerInitialCategory, setPhotoViewerInitialCategory] = useState("\uC804\uCCB4");
   const photoViewerListCacheRef = useRef({});
+  const photoViewerCorrelationRef = useRef("");
   const [historyJob, setHistoryJob] = useState(null);
   const [assigningJobId, setAssigningJobId] = useState("");
   const [completingJobId, setCompletingJobId] = useState("");
@@ -1879,10 +1891,16 @@ export default function PartnerInstallerPortal() {
 
   const loadPhotoGallery = async (job, initialCategory = "\uC804\uCCB4", forceRefresh = false) => {
     if (!job || !user) return;
+    photoViewerCorrelationRef.current = createCorrelationId();
     const month = job.month || job.sheet || "";
     const cacheKey = getPhotoIdentityKey(job, month);
     const cachedGallery = photoViewerListCacheRef.current[cacheKey];
+    const modalPerformance = startClientPerformance("photo_modal_open", {
+      endpoint: WEBAPP_URL, appType: "direct_portal", route: "listPhotos",
+      correlationId: photoViewerCorrelationRef.current, role: user?.role || "", month,
+    });
     setPhotoViewerJob(job);
+    window.requestAnimationFrame(() => modalPerformance.finish({ response: { success: true } }));
     setPhotoViewerInitialCategory(initialCategory || "\uC804\uCCB4");
     if (cachedGallery && !forceRefresh) {
       console.info("[r2-listPhotos] cache hit", { key: cacheKey, photosLength: cachedGallery.photos?.length || 0 });
@@ -1909,6 +1927,7 @@ export default function PartnerInstallerPortal() {
         ...buildPhotoAuthPayload(),
         ...photoPayload,
         includeDeleted: false,
+        correlationId: photoViewerCorrelationRef.current,
       });
 
       if (result.success) {
@@ -2625,7 +2644,7 @@ export default function PartnerInstallerPortal() {
       ) : null}
 
       {uploadJob ? <UploadModal job={uploadJob} onClose={() => setUploadJob(null)} onSubmit={uploadPhotoFiles} uploading={uploadingJobId === jobKey(uploadJob)} progress={uploadProgress} message={actionMessage} onPhotoView={() => loadPhotoGallery(uploadJob, "\uC804\uCCB4")} /> : null}
-      {photoViewerJob ? <PhotoViewerModal job={photoViewerJob} photos={photoViewerPhotos} photoInfo={photoViewerInfo} loading={photoViewerLoading} error={photoViewerError} initialCategory={photoViewerInitialCategory} onClose={() => setPhotoViewerJob(null)} onRefresh={() => loadPhotoGallery(photoViewerJob, photoViewerInitialCategory, true)} onViewR2={viewR2Photo} onViewR2Batch={viewR2Photos} user={user} onRequestDelete={requestDeletePortalR2Photo} onPreviewResetCategory={previewPortalR2PhotoCategoryReset} onResetCategory={resetPortalR2PhotoCategory} /> : null}
+      {photoViewerJob ? <PhotoViewerModal job={photoViewerJob} photos={photoViewerPhotos} photoInfo={photoViewerInfo} loading={photoViewerLoading} error={photoViewerError} initialCategory={photoViewerInitialCategory} onClose={() => setPhotoViewerJob(null)} onRefresh={() => loadPhotoGallery(photoViewerJob, photoViewerInitialCategory, true)} onViewR2={viewR2Photo} onViewR2Batch={viewR2Photos} user={user} correlationId={photoViewerCorrelationRef.current} onRequestDelete={requestDeletePortalR2Photo} onPreviewResetCategory={previewPortalR2PhotoCategoryReset} onResetCategory={resetPortalR2PhotoCategory} /> : null}
       {historyJob ? <HistoryModal job={historyJob} onClose={() => setHistoryJob(null)} onSubmit={addHistory} saving={historySavingJobId === jobKey(historyJob)} message={actionMessage} /> : null}
     </div>
   );
@@ -3102,7 +3121,7 @@ function EngineerAccountRequestHistory({ rows = [], loading = false, message = "
   );
 }
 
-function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false, error = "", initialCategory = "\uC804\uCCB4", onClose, onRefresh, onViewR2, onViewR2Batch, user = null, onRequestDelete, onPreviewResetCategory, onResetCategory }) {
+function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false, error = "", initialCategory = "\uC804\uCCB4", onClose, onRefresh, onViewR2, onViewR2Batch, user = null, correlationId = "", onRequestDelete, onPreviewResetCategory, onResetCategory }) {
   const ALL_TAB = "\uC804\uCCB4";
   const counts = photoInfo?.counts || job?.photoCounts || {};
   const urls = photoInfo?.urls || job?.photoUrls || {};
@@ -3112,6 +3131,16 @@ function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false,
   const [activeIndex, setActiveIndex] = useState(0);
   const [imageUrl, setImageUrl] = useState("");
   const [imageLoading, setImageLoading] = useState(false);
+  const firstPhotoPerformanceRef = useRef(null);
+  if (!firstPhotoPerformanceRef.current) {
+    firstPhotoPerformanceRef.current = startClientPerformance("first_photo_visible", {
+      endpoint: WEBAPP_URL, appType: "direct_portal", route: "listPhotos",
+      correlationId, role: user?.role || "", month: job?.month || job?.sheet || "",
+    });
+  }
+  useEffect(() => () => {
+    firstPhotoPerformanceRef.current?.finish({ error: { code: "USER_CANCELLED" } });
+  }, []);
   const [imageError, setImageError] = useState("");
   const [secretVersion, setSecretVersion] = useState(0);
   const [zoomOpen, setZoomOpen] = useState(false);
@@ -3551,7 +3580,7 @@ function PhotoViewerModal({ job, photos = [], photoInfo = null, loading = false,
           <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-950 p-3 text-white">
             <div className="relative flex min-h-[280px] items-center justify-center overflow-hidden rounded-xl bg-black md:min-h-[420px]" onTouchStart={(e) => { touchStartXRef.current = e.touches?.[0]?.clientX ?? null; }} onTouchEnd={(e) => { if (touchStartXRef.current === null) return; const endX = e.changedTouches?.[0]?.clientX ?? touchStartXRef.current; const diff = touchStartXRef.current - endX; touchStartXRef.current = null; if (Math.abs(diff) >= 40) move(diff > 0 ? 1 : -1); }}>
               {imageLoading ? <div className="flex items-center gap-2 text-sm font-bold text-white"><Loader2 className="h-4 w-4 animate-spin" />{"\uC0AC\uC9C4 \uBD88\uB7EC\uC624\uB294 \uC911"}</div> : null}
-              {!imageLoading && imageUrl ? <button type="button" onClick={() => setZoomOpen(true)} className="flex h-full w-full items-center justify-center" aria-label="\uC0AC\uC9C4 \uD655\uB300\uBCF4\uAE30"><img src={imageUrl} alt="\uC0AC\uC9C4 \uC0C1\uC138" loading="lazy" decoding="async" className="max-h-[70vh] w-full object-contain" onLoad={() => { console.info("[r2-image] first image loaded", { photoKey: getPhotoKey(activePhoto) }); logR2Timing("partner-photo-viewer", "r2-image first image loaded", imageDisplayStartRef.current || r2Now()); }} /></button> : null}
+              {!imageLoading && imageUrl ? <button type="button" onClick={() => setZoomOpen(true)} className="flex h-full w-full items-center justify-center" aria-label="\uC0AC\uC9C4 \uD655\uB300\uBCF4\uAE30"><img src={imageUrl} alt="\uC0AC\uC9C4 \uC0C1\uC138" loading="lazy" decoding="async" className="max-h-[70vh] w-full object-contain" onLoad={() => { console.info("[r2-image] first image loaded", { photoKey: getPhotoKey(activePhoto) }); logR2Timing("partner-photo-viewer", "r2-image first image loaded", imageDisplayStartRef.current || r2Now()); firstPhotoPerformanceRef.current?.finish({ response: { success: true }, itemCount: photos.length }); }} /></button> : null}
               {!imageLoading && imageError ? <div className="mx-4 rounded-xl bg-rose-500/15 px-4 py-3 text-center text-sm font-bold text-rose-100">{imageError}</div> : null}
               {visiblePhotos.length > 1 ? (
                 <>
